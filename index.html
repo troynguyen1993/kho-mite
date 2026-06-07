@@ -234,12 +234,12 @@ async function saveDat(){const items=collect("#list-dat");if(!items.length)retur
 $("#save-nhap").onclick=saveNhap;$("#save-xuat").onclick=saveXuat;$("#save-dat").onclick=saveDat;
 
 /* ===== Kho: xem phiếu yêu cầu (trên màn Xuất) ===== */
-async function loadReq(){const el=$("#xuat-req");
-  const {data,error}=await sb.from('yeu_cau').select('id,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(tp_ma,sl_yeu_cau,nguon)').order('created_at',{ascending:false}).limit(60);
+async function loadReq(){const el=$("#xuat-req");const ng=$("#ngay").value;
+  const {data,error}=await sb.from('yeu_cau').select('id,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(tp_ma,sl_yeu_cau,nguon)').eq('ngay',ng).order('created_at',{ascending:false});
   if(error){el.innerHTML='';return;}
-  if(!data.length){el.innerHTML='<div class="meinfo">Chưa có phiếu yêu cầu nào từ chi nhánh.</div>';return;}
+  if(!data.length){el.innerHTML=`<div class="meinfo">📅 Ngày ${ng}: chưa có phiếu yêu cầu. (Đổi ô Ngày ở trên để xem ngày khác)</div>`;return;}
   const moi=data.filter(p=>p.trang_thai==='moi').length;
-  el.innerHTML=`<div class="sect">📋 Phiếu yêu cầu từ chi nhánh (${moi} mới · ${data.length} tổng — lưu lại hết)</div>`+data.map(p=>{
+  el.innerHTML=`<div class="sect">📋 Phiếu yêu cầu ngày ${ng} (${moi} mới · ${data.length} tổng)</div>`+data.map(p=>{
     const done=p.trang_thai!=='moi';const kholines=(p.yeu_cau_ct||[]).filter(i=>i.nguon!=='ngoai');
     return `<div class="hcard" style="${done?'opacity:.6':''}"><div class="top"><span class="tag y" style="${done?'background:#94a3b8':''}">${p.don_vi_id} · ${done?'✓ đã xử lý':'🆕 MỚI'}</span><button class="linkbtn tog" data-id="${p.id}" data-st="${p.trang_thai}">${done?'↩ mở lại':'Đánh dấu xử lý ✓'}</button></div><div class="meta">📅 ${p.ngay}${p.ghi_chu?' · 📝 '+p.ghi_chu:''}</div><ul>${kholines.map(i=>`<li>${NAME[i.tp_ma]?.ten||i.tp_ma} — <b>${i.sl_yeu_cau}</b></li>`).join("")||'<li><i>(chỉ có hàng mua ngoài)</i></li>'}</ul></div>`;}).join("");
   el.querySelectorAll('.tog').forEach(b=>b.onclick=async()=>{const ns=b.dataset.st==='moi'?'da_xu_ly':'moi';await sb.from('yeu_cau').update({trang_thai:ns}).eq('id',b.dataset.id);toast(ns==='da_xu_ly'?'✅ Đã đánh dấu xử lý':'↩ Đã mở lại');loadReq();});}
@@ -512,6 +512,7 @@ function switchTab(v){
   if(v==="sx")renderSX();if(v==="ql")renderQL();if(v==="bc")loadBC();if(v==="nhan")loadNhan();if(v==="xuat"){loadReq();loadLech();}if(v==="dat")renderDat();
   window.scrollTo(0,0);}
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>switchTab(b.dataset.v));
+$("#ngay").onchange=()=>{const v=[...document.querySelectorAll('nav button')].find(b=>b.classList.contains('on'))?.dataset.v;if(v==='xuat'){loadReq();loadLech();}};
 
 /* ===== KHỞI ĐỘNG ===== */
 (function init(){const s=localStorage.getItem('kho_session');if(s){try{SESSION=JSON.parse(s);startApp();return;}catch(e){}}})();
