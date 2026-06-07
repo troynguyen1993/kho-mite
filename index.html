@@ -136,11 +136,11 @@ const SUPA_URL="https://hwzzdvtuiddrelwdawzo.supabase.co";
 const SUPA_KEY="sb_publishable_5lAQd_PamQYiXWlDKR5JUg_frHNHoCR";
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 const $=s=>document.querySelector(s);
-let branch=null,NVL=[],TP=[],RECIPES=[],DV=[],NAME={},SESSION=null,NGUON={},_TON={},_KKL={};
+let branch=null,NVL=[],TP=[],RECIPES=[],DV=[],NAME={},SESSION=null,NGUON={},_TON={},_KKL={},SHIP=[];
 $("#ngay").value=new Date().toISOString().slice(0,10);
 function toast(m,err){const t=$("#toast");t.textContent=m;t.className="toast show"+(err?" err":"");setTimeout(()=>t.className="toast",2200);}
 const fmt=n=>(Math.round((+n||0)*100)/100).toLocaleString('vi-VN');
-const giaTP=ma=>(TP.find(t=>t.ma===ma)?.gia_xuat)||0;
+const giaTP=ma=>{const t=TP.find(t=>t.ma===ma);if(t)return t.gia_xuat||0;const n=NVL.find(n=>n.ma===ma);return n?.gia_xuat||0;};
 const giaNVL=ma=>(NVL.find(n=>n.ma===ma)?.don_gia)||0;
 
 /* ===== ĐĂNG NHẬP / VAI TRÒ ===== */
@@ -165,7 +165,7 @@ function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.
 /* ===== DANH MỤC ===== */
 async function loadCatalog(){try{
   const [n,t,d,r]=await Promise.all([
-    sb.from('nvl').select('ma,ten,nhom,dvt,don_gia,loai').order('nhom').order('ten'),
+    sb.from('nvl').select('ma,ten,nhom,dvt,don_gia,loai,giao_di,gia_xuat').order('nhom').order('ten'),
     sb.from('thanh_pham').select('ma,ten,dvt,gia_xuat,loai').order('ma'),
     sb.from('don_vi').select('id,ten,la_xuong').order('id'),
     sb.from('recipe').select('id,tp_ma,tp_ten,sl_me,sl_kg,dvt_t1,dvt_t2,tiers,nvl_ma,dinh_luong')]);
@@ -173,8 +173,9 @@ async function loadCatalog(){try{
   NVL=n.data;TP=t.data;RECIPES=r.data;DV=d.data.filter(x=>!x.la_xuong);NAME={};
   [...NVL,...TP].forEach(i=>NAME[i.ma]={ten:i.ten,dvt:i.dvt});
   try{const ng=await sb.from('nguon_chi_nhanh').select('don_vi_id,tp_ma,nguon');NGUON={};(ng.data||[]).forEach(r=>{(NGUON[r.don_vi_id]=NGUON[r.don_vi_id]||{})[r.tp_ma]=r.nguon;});}catch(e){NGUON={};}
+  SHIP=[...TP.map(t=>({ma:t.ma,ten:t.ten,dvt:t.dvt})),...NVL.filter(n=>n.loai==='BTP'&&n.giao_di).map(n=>({ma:n.ma,ten:n.ten,dvt:n.dvt}))];
   renderList($("#list-nhap"),NVL,"n");
-  renderList($("#list-xuat"),TP.map(x=>({...x,nhom:null})),"x");
+  renderList($("#list-xuat"),SHIP.map(x=>({...x,nhom:null})),"x");
   branch=DV[0]?.id;
   $("#branchbar").innerHTML=DV.map((c,i)=>`<button data-c="${c.id}" class="${i===0?'sel':''}">${c.id}</button>`).join("");
   $("#branchbar").querySelectorAll("button").forEach(b=>b.onclick=()=>{branch=b.dataset.c;$("#branchbar").querySelectorAll("button").forEach(x=>x.classList.remove("sel"));b.classList.add("sel");upd();});
@@ -191,7 +192,7 @@ function wireRows(el,cls){el.querySelectorAll(".row").forEach(r=>{const inp=r.qu
 function renderList(el,items,cls){let html="",grp=null;items.forEach(it=>{if(it.nhom&&it.nhom!==grp){grp=it.nhom;html+=`<div class="grp">${grp}</div>`;}html+=rowHTML(it,cls);});el.innerHTML=html;wireRows(el,cls);}
 /* Đặt hàng: tách Từ kho / Mua ngoài theo cài đặt chi nhánh */
 function renderDat(){const dv=SESSION.don_vi_id;const ng=NGUON[dv]||{};
-  const kho=TP.filter(t=>ng[t.ma]!=='ngoai'),ngoai=TP.filter(t=>ng[t.ma]==='ngoai');
+  const kho=SHIP.filter(t=>ng[t.ma]!=='ngoai'),ngoai=SHIP.filter(t=>ng[t.ma]==='ngoai');
   let html=`<button class="addbtn" id="dat-setting" style="border-color:var(--purple);background:#f5f3ff;color:var(--purple)">⚙️ Cài đặt nguồn hàng (Kho / Mua ngoài)</button>`;
   html+=`<div style="margin-bottom:10px"><label style="font-size:12px;color:var(--mut);font-weight:600;display:block;margin-bottom:4px">📝 Ghi chú / yêu cầu lẻ (gửi kho)</label><input id="dat-note" class="search" placeholder="VD: giao gấp, xin thêm món ngoài danh sách…" style="margin:0"></div>`;
   html+=`<div class="grp">📦 Đặt từ Kho (${kho.length})</div>`+kho.map(it=>rowHTML(it,'d')).join("");
@@ -449,17 +450,17 @@ function hasCT(ma){return RECIPES.some(r=>r.tp_ma===ma);}
 function noCT(i,kind){const needs=(kind==='tp'&&i.loai!=='TP_THANG')||(kind==='nvl'&&i.loai==='BTP');return (needs&&!hasCT(i.ma))?' <span class="badge warn">⚠️ chưa có CT</span>':'';}
 function renderItems(b,kind){const list=kind==='nvl'?NVL:TP;const title=kind==='nvl'?'nguyên liệu':'thành phẩm';
   b.innerHTML=`<input class="search" id="qs" placeholder="🔍 Tìm ${title}..."><button class="addbtn" id="qadd">+ Thêm ${title} mới</button><div id="qitems"></div>`;const cont=$("#qitems");
-  function draw(f){f=(f||'').toLowerCase();cont.innerHTML=list.filter(i=>(i.ten+i.ma).toLowerCase().includes(f)).map(i=>{const sub=kind==='nvl'?`${i.nhom||''} · ${i.dvt||''} · ${fmt(i.don_gia)}đ`:`${i.dvt||''} · giá xuất ${fmt(i.gia_xuat)}đ`;const bd=kind==='tp'?badge(i.loai):badge(i.loai==='BTP'?'BTP':'');return `<div class="qcard" data-ma="${i.ma}"><div class="qhead"><div class="qi"><b>${i.ten} ${bd}${noCT(i,kind)}</b><small>${i.ma} · ${sub}</small></div><button class="linkbtn edit">Sửa</button></div></div>`;}).join("")||'<div class="empty">Không có.</div>';cont.querySelectorAll('.edit').forEach(btn=>btn.onclick=e=>openForm(e.target.closest('.qcard'),kind,e.target.closest('.qcard').dataset.ma));}
+  function draw(f){f=(f||'').toLowerCase();cont.innerHTML=list.filter(i=>(i.ten+i.ma).toLowerCase().includes(f)).map(i=>{const sub=kind==='nvl'?`${i.nhom||''} · ${i.dvt||''} · ${fmt(i.don_gia)}đ`:`${i.dvt||''} · giá xuất ${fmt(i.gia_xuat)}đ`;const bd=kind==='tp'?badge(i.loai):badge(i.loai==='BTP'?'BTP':'');const shipBd=(kind==='nvl'&&i.giao_di)?' <span class="badge thang">🚚 Giao đi</span>':'';return `<div class="qcard" data-ma="${i.ma}"><div class="qhead"><div class="qi"><b>${i.ten} ${bd}${shipBd}${noCT(i,kind)}</b><small>${i.ma} · ${sub}</small></div><button class="linkbtn edit">Sửa</button></div></div>`;}).join("")||'<div class="empty">Không có.</div>';cont.querySelectorAll('.edit').forEach(btn=>btn.onclick=e=>openForm(e.target.closest('.qcard'),kind,e.target.closest('.qcard').dataset.ma));}
   draw('');$("#qs").oninput=e=>draw(e.target.value);$("#qadd").onclick=()=>{const tmp=document.createElement('div');tmp.className='qcard';cont.prepend(tmp);openForm(tmp,kind,null);};}
 function openForm(card,kind,ma){const it=ma?(kind==='nvl'?NVL:TP).find(x=>x.ma===ma):{};
   let html='<div class="qform"><div><label>Tên</label><input id="f_ten" value="'+(it.ten||'')+'"></div>';
-  if(kind==='nvl')html+=`<div class="frow"><div><label>Nhóm</label><input id="f_nhom" value="${it.nhom||''}"></div><div><label>Đơn vị</label><input id="f_dvt" value="${it.dvt||''}"></div></div><div class="frow"><div><label>Đơn giá (k/đv)</label><input id="f_gia" type="number" value="${it.don_gia||0}"></div><div><label>Loại</label><select id="f_loai"><option value="NVL" ${it.loai==='NVL'?'selected':''}>NVL nấu</option><option value="BTP" ${it.loai==='BTP'?'selected':''}>Bán thành phẩm</option><option value="CCDC" ${it.loai==='CCDC'?'selected':''}>Bao bì/CCDC</option></select></div></div>`;
+  if(kind==='nvl')html+=`<div class="frow"><div><label>Nhóm</label><input id="f_nhom" value="${it.nhom||''}"></div><div><label>Đơn vị</label><input id="f_dvt" value="${it.dvt||''}"></div></div><div class="frow"><div><label>Đơn giá (k/đv)</label><input id="f_gia" type="number" value="${it.don_gia||0}"></div><div><label>Loại</label><select id="f_loai"><option value="NVL" ${it.loai==='NVL'?'selected':''}>NVL nấu</option><option value="BTP" ${it.loai==='BTP'?'selected':''}>Bán thành phẩm</option><option value="CCDC" ${it.loai==='CCDC'?'selected':''}>Bao bì/CCDC</option></select></div></div><div class="frow"><div><label>🚚 Giao xuống chi nhánh?</label><select id="f_giao"><option value="0" ${!it.giao_di?'selected':''}>Không</option><option value="1" ${it.giao_di?'selected':''}>Có (giao đi như thành phẩm)</option></select></div><div><label>Giá xuất (nếu giao, đ)</label><input id="f_giaxuat" type="number" value="${it.gia_xuat||0}"></div></div>`;
   else html+=`<div class="frow"><div><label>Đơn vị</label><input id="f_dvt" value="${it.dvt||'Phần'}"></div><div><label>Giá xuất (đ)</label><input id="f_gia" type="number" value="${it.gia_xuat||0}"></div></div><div><label>Loại món</label><select id="f_loai"><option value="TP_NAU" ${it.loai==='TP_NAU'?'selected':''}>② Nấu (có công thức)</option><option value="TP_THANG" ${it.loai==='TP_THANG'?'selected':''}>③ Mua bán thẳng</option></select></div>`;
   html+=`<div class="qbtns"><button class="save">${ma?'Lưu':'Thêm'}</button>${ma?'<button class="del">Xóa</button>':''}<button class="cancel">Hủy</button></div></div>`;
   card.querySelector('.qform')?.remove();card.insertAdjacentHTML('beforeend',html);
   card.querySelector('.cancel').onclick=()=>{ma?card.querySelector('.qform').remove():renderQL();};
   card.querySelector('.save').onclick=async()=>{const ten=card.querySelector('#f_ten').value.trim();if(!ten){toast('Nhập tên',true);return;}let rec,tbl;
-    if(kind==='nvl'){tbl='nvl';rec={ma:ma||newMa('NVL'),ten,nhom:card.querySelector('#f_nhom').value.trim(),dvt:card.querySelector('#f_dvt').value.trim(),don_gia:+card.querySelector('#f_gia').value||0,loai:card.querySelector('#f_loai').value};}
+    if(kind==='nvl'){tbl='nvl';rec={ma:ma||newMa('NVL'),ten,nhom:card.querySelector('#f_nhom').value.trim(),dvt:card.querySelector('#f_dvt').value.trim(),don_gia:+card.querySelector('#f_gia').value||0,loai:card.querySelector('#f_loai').value,giao_di:card.querySelector('#f_giao').value==='1',gia_xuat:+card.querySelector('#f_giaxuat').value||0};}
     else{tbl='thanh_pham';rec={ma:ma||newMa('TP'),ten,dvt:card.querySelector('#f_dvt').value.trim(),gia_xuat:+card.querySelector('#f_gia').value||0,loai:card.querySelector('#f_loai').value};}
     const {error}=await sb.from(tbl).upsert(rec);if(error){toast('Lỗi: '+error.message,true);return;}toast(ma?'✅ Đã lưu':'✅ Đã thêm');await loadCatalog();renderQL();};
   if(ma)card.querySelector('.del').onclick=async()=>{if(!confirm('Xóa "'+it.ten+'"?'))return;const {error}=await sb.from(kind==='nvl'?'nvl':'thanh_pham').delete().eq('ma',ma);if(error){toast('Lỗi: '+error.message,true);return;}toast('Đã xóa');await loadCatalog();renderQL();};}
