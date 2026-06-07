@@ -464,43 +464,25 @@ function openForm(card,kind,ma){const it=ma?(kind==='nvl'?NVL:TP).find(x=>x.ma==
     const {error}=await sb.from(tbl).upsert(rec);if(error){toast('Lỗi: '+error.message,true);return;}toast(ma?'✅ Đã lưu':'✅ Đã thêm');await loadCatalog();renderQL();};
   if(ma)card.querySelector('.del').onclick=async()=>{if(!confirm('Xóa "'+it.ten+'"?'))return;const {error}=await sb.from(kind==='nvl'?'nvl':'thanh_pham').delete().eq('ma',ma);if(error){toast('Lỗi: '+error.message,true);return;}toast('Đã xóa');await loadCatalog();renderQL();};}
 function renderCT(b){const tg=recipeTargets();b.innerHTML=`<select class="ct-pick" id="ctpick"><option value="">— Chọn món để xem/sửa công thức —</option>${tg.map(t=>`<option value="${t.ma}">${t.ten}</option>`).join("")}</select><div id="ctbody"></div>`;$("#ctpick").onchange=e=>drawCT(e.target.value);}
-function drawCT(tpma){const body=$("#ctbody");if(!tpma){body.innerHTML='';return;}const rows=RECIPES.filter(r=>r.tp_ma===tpma);const r0=rows[0]||{};const tenTP=(NAME[tpma]?.ten)||r0.tp_ten||tpma;const curDvt=NAME[tpma]?.dvt||'';const isTP=TP.some(t=>t.ma===tpma);
-  let tiers=Array.isArray(r0.tiers)&&r0.tiers.length?r0.tiers.map(t=>({sl:t.sl,dvt:t.dvt})):[];
-  if(!tiers.length){if(r0.sl_kg)tiers.push({sl:r0.sl_kg,dvt:r0.dvt_t1||'kg'});if(r0.sl_me)tiers.push({sl:r0.sl_me,dvt:r0.dvt_t2||curDvt||'phần'});if(!tiers.length)tiers.push({sl:'',dvt:curDvt||''});}
-  function readTiers(){return [...body.querySelectorAll('#tierbox .trow2')].map(r=>({sl:+r.querySelector('.t-sl').value||0,dvt:r.querySelector('.t-dvt').value.trim()}));}
-  function totalCost(){_cost={};return rows.reduce((s,r)=>s+Number(r.dinh_luong)*unitCost(r.nvl_ma),0);}
-  function showCost(){const tot=totalCost();const ts=readTiers();$("#t-cost").innerHTML=`💰 Vốn NVL/mẻ ~<b>${fmt(tot)}</b><br>`+(ts.length?ts.map(t=>`/${t.dvt||'?'} ~<b>${t.sl?fmt(tot/t.sl):'—'}</b>`).join(' · '):'—');}
-  function refreshBan(){const ts=readTiers();const sel=$("#t-ban");const cur=sel.value;sel.innerHTML=ts.map((t,i)=>`<option value="${i}" ${(t.dvt&&t.dvt===curDvt)?'selected':''}>${t.dvt||'(đặt đơn vị)'}</option>`).join("");if(cur!==''&&ts[+cur])sel.value=cur;}
-  function render(){
-    let html=`<div class="meinfo">⚙️ Định mức 1 mẻ <b>${tenTP}</b> — các tầng quy đổi (đơn vị tự đặt). 1 mẻ NVL = mỗi tầng dưới:</div>
-      <div class="adding" style="border-style:solid;background:#fff"><div id="tierbox">`;
-    tiers.forEach(t=>{html+=`<div class="frow trow2" style="margin-bottom:5px"><input class="t-sl" type="number" inputmode="decimal" value="${t.sl||''}" placeholder="số lượng" style="flex:2;border:1px solid var(--line);border-radius:9px;padding:9px"><input class="t-dvt" value="${t.dvt||''}" placeholder="đơn vị (kg/phần…)" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:9px;text-align:center"><button class="t-rm" type="button" style="border:none;background:none;color:var(--red);font-size:18px;font-weight:700;flex:0 0 26px">✕</button></div>`;});
-    html+=`</div><button id="t-add" type="button" style="background:#eef5ff;color:var(--blue);border:1px dashed var(--blue)">+ Thêm tầng</button>
-      <label style="font-size:11.5px;color:var(--mut);font-weight:600;margin-top:8px">📦 Đơn vị BÁN / XUẤT (chọn 1 tầng):</label>
-      <select id="t-ban" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:9px"></select>
-      <div id="t-cost" style="font-size:12px;text-align:center;color:#33414f;margin-top:5px"></div>
-      <button id="t-save">💾 Lưu định mức + đơn vị bán</button></div>
-      <div class="grp">Nguyên liệu / mẻ</div>`;
-    html+=rows.length?rows.map(r=>`<div class="ing" data-id="${r.id}"><div class="nm">${NAME[r.nvl_ma]?.ten||r.nvl_ma}</div><div class="dl">${fmt(r.dinh_luong)} ${NAME[r.nvl_ma]?.dvt||''}</div><button class="rm">✕</button></div>`).join(""):'<div class="empty" style="padding:20px">Chưa có nguyên liệu.</div>';
-    const opts=[...NVL].sort((a,b)=>a.ten.localeCompare(b.ten)).map(n=>`<option value="${n.ma}">${n.ten} (${n.dvt||''})</option>`).join("");
-    html+=`<div class="adding"><div class="frow"><select id="ing-nvl" style="flex:2;border:1px solid var(--line);border-radius:9px;padding:10px">${opts}</select><input id="ing-dl" type="number" placeholder="Định lượng" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:10px"></div><button id="ing-add">+ Thêm nguyên liệu</button></div>`;
-    body.innerHTML=html;refreshBan();showCost();
-    body.querySelectorAll('#tierbox .t-sl,#tierbox .t-dvt').forEach(inp=>inp.oninput=()=>{refreshBan();showCost();});
-    body.querySelectorAll('.t-rm').forEach((b,i)=>b.onclick=()=>{tiers=readTiers();tiers.splice(i,1);if(!tiers.length)tiers.push({sl:'',dvt:''});render();});
-    $("#t-add").onclick=()=>{tiers=readTiers();tiers.push({sl:'',dvt:''});render();};
-    $("#t-save").onclick=saveYield;
-    body.querySelectorAll('.rm').forEach(btn=>btn.onclick=async()=>{const id=btn.closest('.ing').dataset.id;const {error}=await sb.from('recipe').delete().eq('id',id);if(error){toast('Lỗi: '+error.message,true);return;}toast('Đã bỏ');await loadCatalog();drawCT(tpma);});
-    $("#ing-add").onclick=addIng;
-  }
-  async function saveYield(){const ts=readTiers().filter(t=>t.dvt);if(!ts.length){toast('Nhập ít nhất 1 tầng có đơn vị',true);return;}if(!rows.length){toast('Thêm nguyên liệu trước đã',true);return;}
-    const bi=Math.min(+$("#t-ban").value||0,ts.length-1);const ban=ts[bi];
-    const {error}=await sb.from('recipe').update({tiers:ts,sl_me:ban.sl||0,sl_kg:ts[0]?.sl||null,dvt_t1:ts[0]?.dvt||null,dvt_t2:ban.dvt||null}).eq('tp_ma',tpma);
-    if(error){toast('Lỗi: '+error.message,true);return;}
-    await sb.from(isTP?'thanh_pham':'nvl').update({dvt:ban.dvt}).eq('ma',tpma);
-    toast('✅ Đã lưu — đơn vị bán: '+ban.dvt);await loadCatalog();drawCT(tpma);}
-  async function addIng(){const nvl_ma=$("#ing-nvl").value;const dl=+$("#ing-dl").value;if(!dl){toast('Nhập định lượng',true);return;}const ts=readTiers().filter(t=>t.dvt);const bi=Math.min(+($("#t-ban").value||0),Math.max(0,ts.length-1));const sl_me=ts[bi]?.sl||r0.sl_me||0;
-    const {error}=await sb.from('recipe').insert({tp_ma:tpma,tp_ten:tenTP,sl_me,tiers:ts.length?ts:null,nvl_ma,dinh_luong:dl});if(error){toast('Lỗi: '+error.message,true);return;}toast('✅ Đã thêm');await loadCatalog();drawCT(tpma);}
-  render();}
+function drawCT(tpma){const body=$("#ctbody");if(!tpma){body.innerHTML='';return;}const rows=RECIPES.filter(r=>r.tp_ma===tpma);const r0=rows[0]||{};const tenTP=(NAME[tpma]?.ten)||r0.tp_ten||tpma;const curDvt=NAME[tpma]?.dvt||'';const isTP=TP.some(t=>t.ma===tpma);const sl_me=r0.sl_me||0;
+  let html=`<div class="meinfo">⚙️ Công thức 1 mẻ <b>${tenTP}</b>:</div>
+    <div class="adding" style="border-style:solid;background:#fff">
+      <label style="font-size:11.5px;color:var(--mut);font-weight:600">1 mẻ nấu/làm ra:</label>
+      <div class="frow"><input id="ct-sl" type="number" inputmode="decimal" value="${sl_me||''}" placeholder="số lượng" style="flex:2;border:1px solid var(--line);border-radius:9px;padding:9px"><input id="ct-dvt" value="${curDvt}" placeholder="đơn vị" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:9px;text-align:center"></div>
+      <div id="ct-cost" style="font-size:12px;text-align:center;color:#33414f;margin-top:5px"></div>
+      <button id="ct-save">💾 Lưu định mức</button>
+      <div style="font-size:11px;color:var(--mut);margin-top:7px;line-height:1.45">💡 Đơn vị do quản lý đặt, nhân viên chỉ nhập số. Nếu món cần 2 đơn vị (nấu ra <b>kg</b> rồi đóng gói <b>phần</b>): tách 2 món — vd "Bò Hầm Kg" (Bán TP) + "Bò Hầm Phần" (Thành phẩm, công thức dùng Bò Hầm Kg).</div>
+    </div>
+    <div class="grp">Nguyên liệu / mẻ</div>`;
+  html+=rows.length?rows.map(r=>`<div class="ing" data-id="${r.id}"><div class="nm">${NAME[r.nvl_ma]?.ten||r.nvl_ma}</div><div class="dl">${fmt(r.dinh_luong)} ${NAME[r.nvl_ma]?.dvt||''}</div><button class="rm">✕</button></div>`).join(""):'<div class="empty" style="padding:20px">Chưa có nguyên liệu.</div>';
+  const opts=[...NVL].sort((a,b)=>a.ten.localeCompare(b.ten)).map(n=>`<option value="${n.ma}">${n.ten} (${n.dvt||''})</option>`).join("");
+  html+=`<div class="adding"><div class="frow"><select id="ing-nvl" style="flex:2;border:1px solid var(--line);border-radius:9px;padding:10px">${opts}</select><input id="ing-dl" type="number" placeholder="Định lượng" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:10px"></div><button id="ing-add">+ Thêm nguyên liệu</button></div>`;
+  body.innerHTML=html;
+  function showCost(){_cost={};const tot=rows.reduce((s,r)=>s+Number(r.dinh_luong)*unitCost(r.nvl_ma),0);const sl=+$("#ct-sl").value||0,d=$("#ct-dvt").value||'';$("#ct-cost").innerHTML=`💰 Vốn NVL/mẻ ~<b>${fmt(tot)}</b> · vốn 1 ${d} ~<b>${sl?fmt(tot/sl):'—'}</b>`;}
+  showCost();$("#ct-sl").oninput=showCost;$("#ct-dvt").oninput=showCost;
+  $("#ct-save").onclick=async()=>{const sl=+$("#ct-sl").value||0,d=$("#ct-dvt").value.trim();if(!rows.length){toast('Thêm nguyên liệu trước đã',true);return;}const {error}=await sb.from('recipe').update({sl_me:sl,tiers:null}).eq('tp_ma',tpma);if(error){toast('Lỗi: '+error.message,true);return;}if(d&&d!==curDvt)await sb.from(isTP?'thanh_pham':'nvl').update({dvt:d}).eq('ma',tpma);toast('✅ Đã lưu định mức');await loadCatalog();drawCT(tpma);};
+  body.querySelectorAll('.rm').forEach(btn=>btn.onclick=async()=>{const id=btn.closest('.ing').dataset.id;const {error}=await sb.from('recipe').delete().eq('id',id);if(error){toast('Lỗi: '+error.message,true);return;}toast('Đã bỏ');await loadCatalog();drawCT(tpma);});
+  $("#ing-add").onclick=async()=>{const nvl_ma=$("#ing-nvl").value;const dl=+$("#ing-dl").value;if(!dl){toast('Nhập định lượng',true);return;}const {error}=await sb.from('recipe').insert({tp_ma:tpma,tp_ten:tenTP,sl_me:(+$("#ct-sl").value||sl_me),nvl_ma,dinh_luong:dl});if(error){toast('Lỗi: '+error.message,true);return;}toast('✅ Đã thêm');await loadCatalog();drawCT(tpma);};}
 async function renderTK(b){b.innerHTML='<div class="loading">Đang tải…</div>';const {data,error}=await sb.from('nguoi_dung').select('*').order('id');if(error){b.innerHTML='<div class="empty">Lỗi: '+error.message+'</div>';return;}
   b.innerHTML='<button class="addbtn" id="tkadd">+ Thêm tài khoản mới</button><div id="tkitems"></div>';const cont=$("#tkitems");
   cont.innerHTML=data.map(u=>{const off=u.active?'':' <span class="badge off">đã khóa</span>';return `<div class="qcard" data-id="${u.id}"><div class="qhead"><div class="qi"><b>${u.ten_hien_thi||u.ten_dn} <span class="badge role">${ROLE_NAME[u.vai_tro]||u.vai_tro}${u.don_vi_id?' '+u.don_vi_id:''}</span>${off}</b><small>đăng nhập: ${u.ten_dn}</small></div><button class="linkbtn edit">Sửa</button></div></div>`;}).join("");
