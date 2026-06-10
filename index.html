@@ -184,7 +184,7 @@ async function loadCatalog(){try{
 }catch(e){$("#status").textContent="🔴 Lỗi: "+(e.message||e);$("#status").style.background="#fef2f2";$("#status").style.color="#b91c1c";}}
 
 /* ===== LIST nhập/xuất/đặt ===== */
-function rowHTML(it,cls){const ex=cls==='x'?` · <span style="color:var(--amber)">vốn ~${fmt(unitCost(it.ma))}</span> · giá xuất ${fmt(giaTP(it.ma))}đ`:'';return `<div class="row" data-ma="${it.ma}"><div class="nm"><b>${it.ten}</b><small>${it.ma} · ${it.dvt||""}${ex}</small></div><div class="qty"><button type="button" class="minus">−</button><input type="number" inputmode="decimal" min="0" placeholder="0" class="q ${cls}"><button type="button" class="plus">+</button></div></div>`;}
+function rowHTML(it,cls){const ex=cls==='x'?` · <span style="color:var(--amber)">vốn ~${fmt(unitCost(it.ma))}</span>`:'';return `<div class="row" data-ma="${it.ma}"><div class="nm"><b>${it.ten}</b><small>${it.ma} · ${it.dvt||""}${ex}</small></div><div class="qty"><button type="button" class="minus">−</button><input type="number" inputmode="decimal" min="0" placeholder="0" class="q ${cls}"><button type="button" class="plus">+</button></div></div>`;}
 function wireRows(el,cls){el.querySelectorAll(".row").forEach(r=>{const inp=r.querySelector("input");
     r.querySelector(".plus").onclick=()=>{inp.value=(+inp.value||0)+1;mark(r,inp,cls);upd();};
     r.querySelector(".minus").onclick=()=>{inp.value=Math.max(0,(+inp.value||0)-1)||"";mark(r,inp,cls);upd();};
