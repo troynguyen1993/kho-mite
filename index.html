@@ -145,7 +145,7 @@ const giaNVL=ma=>(NVL.find(n=>n.ma===ma)?.don_gia)||0;
 
 /* ===== ĐĂNG NHẬP / VAI TRÒ ===== */
 const ROLE_NAME={tong:'Quản lý tổng',kho:'Quản lý kho',ke_toan:'Kế toán',chi_nhanh:'Chi nhánh'};
-const ROLE_TABS={tong:['nhap','sx','xuat','bc','ql'],kho:['nhap','sx','xuat','bc','ql'],ke_toan:['bc'],chi_nhanh:['dat','nhan','bc']};
+const ROLE_TABS={tong:['nhap','sx','xuat','bc','ql'],kho:['nhap','sx','xuat','bc','ql'],ke_toan:['nhap','sx','ql','bc'],chi_nhanh:['dat','nhan','bc']};
 async function doLogin(){const u=$("#lg-u").value.trim(),p=$("#lg-p").value.trim();if(!u||!p){$("#lg-err").textContent="Nhập tên và mật khẩu";return;}
   $("#lg-btn").textContent="Đang kiểm tra…";$("#lg-err").textContent="";
   try{const {data,error}=await sb.from('nguoi_dung').select('*').eq('ten_dn',u).eq('mat_khau',p).eq('active',true).maybeSingle();
@@ -175,7 +175,7 @@ async function loadCatalog(){try{
   try{const ng=await sb.from('nguon_chi_nhanh').select('don_vi_id,tp_ma,nguon');NGUON={};(ng.data||[]).forEach(r=>{(NGUON[r.don_vi_id]=NGUON[r.don_vi_id]||{})[r.tp_ma]=r.nguon;});}catch(e){NGUON={};}
   SHIP=[...TP.map(t=>({ma:t.ma,ten:t.ten,dvt:t.dvt})),...NVL.filter(n=>n.loai==='BTP'&&n.giao_di).map(n=>({ma:n.ma,ten:n.ten,dvt:n.dvt}))];
   renderList($("#list-nhap"),NVL,"n");
-  renderList($("#list-xuat"),SHIP.map(x=>({...x,nhom:null})),"x");
+  _cost={};renderList($("#list-xuat"),SHIP.map(x=>({...x,nhom:null})),"x");
   branch=DV[0]?.id;
   $("#branchbar").innerHTML=DV.map((c,i)=>`<button data-c="${c.id}" class="${i===0?'sel':''}">${c.id}</button>`).join("");
   $("#branchbar").querySelectorAll("button").forEach(b=>b.onclick=()=>{branch=b.dataset.c;$("#branchbar").querySelectorAll("button").forEach(x=>x.classList.remove("sel"));b.classList.add("sel");upd();});
@@ -184,7 +184,7 @@ async function loadCatalog(){try{
 }catch(e){$("#status").textContent="🔴 Lỗi: "+(e.message||e);$("#status").style.background="#fef2f2";$("#status").style.color="#b91c1c";}}
 
 /* ===== LIST nhập/xuất/đặt ===== */
-function rowHTML(it,cls){return `<div class="row" data-ma="${it.ma}"><div class="nm"><b>${it.ten}</b><small>${it.ma} · ${it.dvt||""}</small></div><div class="qty"><button type="button" class="minus">−</button><input type="number" inputmode="decimal" min="0" placeholder="0" class="q ${cls}"><button type="button" class="plus">+</button></div></div>`;}
+function rowHTML(it,cls){const ex=cls==='x'?` · <span style="color:var(--amber)">vốn ~${fmt(unitCost(it.ma))}</span> · giá xuất ${fmt(giaTP(it.ma))}đ`:'';return `<div class="row" data-ma="${it.ma}"><div class="nm"><b>${it.ten}</b><small>${it.ma} · ${it.dvt||""}${ex}</small></div><div class="qty"><button type="button" class="minus">−</button><input type="number" inputmode="decimal" min="0" placeholder="0" class="q ${cls}"><button type="button" class="plus">+</button></div></div>`;}
 function wireRows(el,cls){el.querySelectorAll(".row").forEach(r=>{const inp=r.querySelector("input");
     r.querySelector(".plus").onclick=()=>{inp.value=(+inp.value||0)+1;mark(r,inp,cls);upd();};
     r.querySelector(".minus").onclick=()=>{inp.value=Math.max(0,(+inp.value||0)-1)||"";mark(r,inp,cls);upd();};
@@ -228,10 +228,14 @@ async function saveXuat(){const items=collect("#list-xuat");if(!items.length||!b
     clearInputs("#list-xuat");toast("✅ Đã lưu phiếu xuất → "+branch);}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
 async function saveDat(){const items=collect("#list-dat");if(!items.length)return;$("#save-dat").disabled=true;$("#save-dat").textContent="Đang gửi…";
   const note=$("#dat-note")?.value?.trim()||null;
+  const ng=NGUON[SESSION.don_vi_id]||{};
   try{const {data:h,error}=await sb.from('yeu_cau').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'moi',ghi_chu:note}).select().single();if(error)throw error;
-    const ng=NGUON[SESSION.don_vi_id]||{};
     await sb.from('yeu_cau_ct').insert(items.map(i=>({yeu_cau_id:h.id,tp_ma:i.ma,sl_yeu_cau:i.sl,nguon:ng[i.ma]==='ngoai'?'ngoai':'kho'})));
-    clearInputs("#list-dat");renderDat();toast("✅ Đã gửi phiếu yêu cầu");}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
+    // Món "mua ngoài" → chi nhánh tự mua, tự nhận luôn vào tồn (không gửi về kho)
+    const ngoai=items.filter(i=>ng[i.ma]==='ngoai');let nMsg='';
+    if(ngoai.length){const {data:xh,error:xe}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true}).select().single();
+      if(!xe&&xh){await sb.from('xuat_ct').insert(ngoai.map(i=>({xuat_id:xh.id,tp_ma:i.ma,sl_xuat:i.sl,ghi_chu:'tự mua ngoài'})));nMsg=' · 🛒 '+ngoai.length+' món mua ngoài → vào tab Nhận hàng điền SL & giá';}}
+    clearInputs("#list-dat");renderDat();toast("✅ Đã gửi phiếu yêu cầu"+nMsg);}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
 $("#save-nhap").onclick=saveNhap;$("#save-xuat").onclick=saveXuat;$("#save-dat").onclick=saveDat;
 
 /* ===== Kho: xem phiếu yêu cầu (trên màn Xuất) ===== */
@@ -245,7 +249,7 @@ async function loadReq(){const el=$("#xuat-req");const ng=$("#ngay").value;
     return `<div class="hcard" style="${done?'opacity:.6':''}"><div class="top"><span class="tag y" style="${done?'background:#94a3b8':''}">${p.don_vi_id} · ${done?'✓ đã xử lý':'🆕 MỚI'}</span><button class="linkbtn tog" data-id="${p.id}" data-st="${p.trang_thai}">${done?'↩ mở lại':'Đánh dấu xử lý ✓'}</button></div><div class="meta">📅 ${p.ngay}${p.ghi_chu?' · 📝 '+p.ghi_chu:''}</div><ul>${kholines.map(i=>`<li>${NAME[i.tp_ma]?.ten||i.tp_ma} — <b>${i.sl_yeu_cau}</b></li>`).join("")||'<li><i>(chỉ có hàng mua ngoài)</i></li>'}</ul></div>`;}).join("");
   el.querySelectorAll('.tog').forEach(b=>b.onclick=async()=>{const ns=b.dataset.st==='moi'?'da_xu_ly':'moi';await sb.from('yeu_cau').update({trang_thai:ns}).eq('id',b.dataset.id);toast(ns==='da_xu_ly'?'✅ Đã đánh dấu xử lý':'↩ Đã mở lại');loadReq();});}
 async function loadLech(){const el=$("#xuat-lech");
-  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,xu_ly)').eq('trang_thai','da_nhan').order('created_at',{ascending:false}).limit(80);
+  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,xu_ly)').eq('trang_thai','da_nhan').neq('tu_mua',true).order('created_at',{ascending:false}).limit(80);
   if(error){el.innerHTML='';return;}
   const lech=[];(data||[]).forEach(p=>(p.xuat_ct||[]).forEach(l=>{const x=Number(l.sl_xuat),y=Number(l.sl_thuc_nhan??x);if(Math.abs(x-y)>0.001&&!l.xu_ly)lech.push({id:l.id,ten:NAME[l.tp_ma]?.ten||l.tp_ma,dvt:NAME[l.tp_ma]?.dvt||'',dv:p.don_vi_id,ngay:p.ngay,x,y,thieu:x-y});}));
   if(!lech.length){el.innerHTML='';return;}
@@ -254,23 +258,27 @@ async function loadLech(){const el=$("#xuat-lech");
 
 /* ===== Chi nhánh: nhận hàng (duyệt phiếu xuất) ===== */
 async function loadNhan(){const el=$("#v-nhan");el.innerHTML='<div class="loading">Đang tải…</div>';
-  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,trang_thai,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,ghi_chu)').eq('don_vi_id',SESSION.don_vi_id).eq('trang_thai','cho_nhan').order('created_at',{ascending:false});
+  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,trang_thai,tu_mua,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,gia_mua,ghi_chu)').eq('don_vi_id',SESSION.don_vi_id).eq('trang_thai','cho_nhan').order('created_at',{ascending:false});
   if(error){el.innerHTML='<div class="empty">Lỗi: '+error.message+'</div>';return;}
   if(!data.length){el.innerHTML='<div class="empty">Không có phiếu hàng nào chờ nhận. 🎉</div>';return;}
-  el.innerHTML=data.map(p=>`<div class="hcard" data-id="${p.id}"><div class="top"><span class="tag x">HÀNG KHO GỬI</span><small>📅 ${p.ngay}</small></div>
-    <div style="margin-top:8px">${p.xuat_ct.map(l=>`<div class="ing"><div class="nm">${NAME[l.tp_ma]?.ten||l.tp_ma}<br><small style="color:var(--mut)">Kho gửi: ${l.sl_xuat}</small></div><input type="number" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"></div>`).join("")}</div>
-    <button class="addbtn addmore" style="margin-top:8px">+ Thêm món khác</button><div class="extra"></div>
-    <button class="confirm" data-id="${p.id}" style="width:100%;border:none;border-radius:12px;padding:14px;margin-top:6px;background:var(--green);color:#fff;font-weight:700;font-size:15px">✅ Xác nhận đã nhận</button></div>`).join("");
+  el.innerHTML=data.map(p=>{const tm=!!p.tu_mua;
+    const head=tm?`<span class="tag y">🛒 TỰ MUA — điền SL & giá thực</span>`:`<span class="tag x">HÀNG KHO GỬI</span>`;
+    const lines=p.xuat_ct.map(l=>{const ten=NAME[l.tp_ma]?.ten||l.tp_ma,dvt=NAME[l.tp_ma]?.dvt||'';
+      if(tm)return `<div class="ing"><div class="nm">${ten}<br><small style="color:var(--mut)">đã đặt ${l.sl_xuat} ${dvt}</small></div><div style="display:flex;gap:5px;align-items:center"><input type="number" inputmode="decimal" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" placeholder="SL mua" style="width:60px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"><span style="color:var(--mut)">×</span><input type="number" inputmode="decimal" class="rcgia" data-ct="${l.id}" value="${l.gia_mua||''}" placeholder="đ/đv" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px"></div></div>`;
+      return `<div class="ing"><div class="nm">${ten}<br><small style="color:var(--mut)">Kho gửi: ${l.sl_xuat}</small></div><input type="number" inputmode="decimal" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"></div>`;}).join("");
+    const addmore=tm?'':`<button class="addbtn addmore" style="margin-top:8px">+ Thêm món khác</button><div class="extra"></div>`;
+    return `<div class="hcard" data-id="${p.id}" data-tm="${tm?1:0}"><div class="top">${head}<small>📅 ${p.ngay}</small></div><div style="margin-top:8px">${lines}</div>${addmore}<button class="confirm" data-id="${p.id}" style="width:100%;border:none;border-radius:12px;padding:14px;margin-top:6px;background:${tm?'var(--purple)':'var(--green)'};color:#fff;font-weight:700;font-size:15px">✅ Xác nhận ${tm?'đã mua':'đã nhận'}</button></div>`;}).join("");
   el.querySelectorAll('.addmore').forEach(b=>b.onclick=()=>{const ex=b.nextElementSibling;const opts=TP.map(t=>`<option value="${t.ma}">${t.ten}</option>`).join("");
     ex.insertAdjacentHTML('beforeend',`<div class="ing"><select class="exma" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px">${opts}</select><input type="number" class="exsl" placeholder="SL" style="width:64px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px"></div>`);});
   el.querySelectorAll('.confirm').forEach(b=>b.onclick=()=>confirmNhan(b.closest('.hcard'),b.dataset.id));}
 async function confirmNhan(card,id){
   try{
-    for(const inp of card.querySelectorAll('.rc')){await sb.from('xuat_ct').update({sl_thuc_nhan:+inp.value||0}).eq('id',inp.dataset.ct);}
+    const tm=card.dataset.tm==='1';
+    for(const inp of card.querySelectorAll('.rc')){const upd={sl_thuc_nhan:+inp.value||0};if(tm){const g=card.querySelector('.rcgia[data-ct="'+inp.dataset.ct+'"]');if(g)upd.gia_mua=+g.value||0;}await sb.from('xuat_ct').update(upd).eq('id',inp.dataset.ct);}
     const extra=[...card.querySelectorAll('.extra .ing')].map(d=>({xuat_id:id,tp_ma:d.querySelector('.exma').value,sl_xuat:0,sl_thuc_nhan:+d.querySelector('.exsl').value||0,ghi_chu:'thêm khi nhận'})).filter(x=>x.sl_thuc_nhan>0);
     if(extra.length)await sb.from('xuat_ct').insert(extra);
     await sb.from('xuat').update({trang_thai:'da_nhan'}).eq('id',id);
-    toast('✅ Đã xác nhận nhận hàng');loadNhan();
+    toast(tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();
   }catch(e){toast('Lỗi: '+(e.message||e),true);}}
 
 /* ===== 🍳 SẢN XUẤT ===== */
@@ -311,7 +319,7 @@ function exportBC(){let csv='BAO CAO KHO XUONG,'+new Date().toLocaleString('vi-V
   downloadCSV('bao-cao-kho-'+$("#ngay").value+'.csv',csv);toast('✅ Đã tải file Excel');}
 async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">Đang tính báo cáo…</div>';
   const isCN=SESSION.vai_tro==='chi_nhanh',myDV=SESSION.don_vi_id;_cost={};
-  let xq=sb.from('xuat').select('ngay,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,xu_ly)').order('created_at',{ascending:false}).limit(300);
+  let xq=sb.from('xuat').select('ngay,don_vi_id,trang_thai,tu_mua,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,xu_ly,gia_mua)').order('created_at',{ascending:false}).limit(300);
   if(isCN)xq=xq.eq('don_vi_id',myDV);
   const R=await Promise.allSettled([
     sb.from('nhap').select('ngay,nhap_ct(nvl_ma,sl)'),xq,
@@ -322,12 +330,15 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
   const nh=R[0].value?.data||[],xx=R[1].value?.data||[],sx=R[2].value?.data||[],yc=R[3].value?.data||[],kk=R[4].value?.data||[],ck=R[5].value?.data||[];
   const day={};
   nh.forEach(p=>{const s=(p.nhap_ct||[]).reduce((a,i)=>a+Number(i.sl),0);(day[p.ngay]=day[p.ngay]||{n:0,x:0}).n+=s;});
-  xx.forEach(p=>{const s=(p.xuat_ct||[]).reduce((a,i)=>a+Number(i.sl_xuat),0);(day[p.ngay]=day[p.ngay]||{n:0,x:0}).x+=s;});
+  xx.forEach(p=>{if(p.tu_mua)return;const s=(p.xuat_ct||[]).reduce((a,i)=>a+Number(i.sl_xuat),0);(day[p.ngay]=day[p.ngay]||{n:0,x:0}).x+=s;});
   const bRev={},bCost={},bRecv={},prod={},sold={};let totRev=0,totCost=0;
-  xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const rev=Number(l.sl_xuat)*giaTP(l.tp_ma),cost=Number(l.sl_xuat)*unitCost(l.tp_ma);
+  xx.forEach(p=>{if(p.tu_mua)return;(p.xuat_ct||[]).forEach(l=>{const rev=Number(l.sl_xuat)*giaTP(l.tp_ma),cost=Number(l.sl_xuat)*unitCost(l.tp_ma);
     bRev[p.don_vi_id]=(bRev[p.don_vi_id]||0)+rev;bCost[p.don_vi_id]=(bCost[p.don_vi_id]||0)+cost;totRev+=rev;totCost+=cost;
     sold[l.tp_ma]=(sold[l.tp_ma]||0)+(l.xu_ly==='tra_kho'?Number(l.sl_thuc_nhan||0):Number(l.sl_xuat));
-    if(p.trang_thai==='da_nhan')bRecv[p.don_vi_id]=(bRecv[p.don_vi_id]||0)+Number(l.sl_thuc_nhan||0);}));
+    if(p.trang_thai==='da_nhan')bRecv[p.don_vi_id]=(bRecv[p.don_vi_id]||0)+Number(l.sl_thuc_nhan||0);})});
+  // Chi phí hàng tự mua (mua ngoài, đã xác nhận) = SL thực × đơn giá thực trả
+  const tuMuaCost={},tuMuaItems=[];let totTuMua=0;
+  xx.forEach(p=>{if(!p.tu_mua||p.trang_thai!=='da_nhan')return;(p.xuat_ct||[]).forEach(l=>{const sl=Number(l.sl_thuc_nhan||0),gia=Number(l.gia_mua||0),c=sl*gia;tuMuaCost[p.don_vi_id]=(tuMuaCost[p.don_vi_id]||0)+c;totTuMua+=c;tuMuaItems.push({dv:p.don_vi_id,ngay:p.ngay,ten:NAME[l.tp_ma]?.ten||l.tp_ma,sl,gia,c,dvt:NAME[l.tp_ma]?.dvt||''});});});
   sx.forEach(s=>prod[s.item_ma]=(prod[s.item_ma]||0)+Number(s.so_luong));
   const consumed={},nhapNVL={};
   sx.forEach(s=>(s.san_xuat_ct||[]).forEach(c=>consumed[c.nvl_ma]=(consumed[c.nvl_ma]||0)+Number(c.sl_tieu_hao)));
@@ -339,7 +350,7 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
     html+=days.length?days.map(d=>`<div class="trow"><span>${d}</span><span>${fmt(day[d].n)}</span><span class="r">${fmt(day[d].x)}</span></div>`).join(""):'<div class="empty">Chưa có.</div>';
     const byDay={};
     yc.forEach(p=>{(byDay[p.ngay]=byDay[p.ngay]||[]).push({type:'order',dv:p.don_vi_id,n:(p.yeu_cau_ct||[]).length,st:p.trang_thai});});
-    xx.forEach(p=>{const ct=p.xuat_ct||[];let rn;if(p.trang_thai==='da_nhan'){rn=ct.some(l=>Number(l.sl_thuc_nhan??l.sl_xuat)<Number(l.sl_xuat))?'thieu':'du';}else rn='cho';(byDay[p.ngay]=byDay[p.ngay]||[]).push({type:'xuat',dv:p.don_vi_id,n:ct.length,rn});});
+    xx.forEach(p=>{if(p.tu_mua)return;const ct=p.xuat_ct||[];let rn;if(p.trang_thai==='da_nhan'){rn=ct.some(l=>Number(l.sl_thuc_nhan??l.sl_xuat)<Number(l.sl_xuat))?'thieu':'du';}else rn='cho';(byDay[p.ngay]=byDay[p.ngay]||[]).push({type:'xuat',dv:p.don_vi_id,n:ct.length,rn});});
     const tdays=Object.keys(byDay).sort().reverse().slice(0,14);
     html+=`<div class="sect">📋 Theo dõi hằng ngày (order & xuất hàng)</div>`;
     html+=tdays.length?tdays.map(d=>`<div class="hcard"><div style="font-weight:700;font-size:13px;margin-bottom:2px">📆 ${d}</div>`+byDay[d].map(it=>it.type==='order'?`<div style="font-size:13px;margin-top:4px">📝 Order <b>${it.dv}</b> · ${it.n} món · ${it.st==='moi'?'🆕 chờ xử lý':'✓ đã xử lý'}</div>`:`<div style="font-size:13px;margin-top:4px">📤 Xuất <b>${it.dv}</b> · ${it.n} món · ${it.rn==='cho'?'⏳ chờ nhận':it.rn==='thieu'?'<span class="neg">⚠️ đã nhận (thiếu)</span>':'✅ đã nhận (đủ)'}</div>`).join("")+`</div>`).join(""):'<div class="empty">Chưa có hoạt động.</div>';
@@ -362,6 +373,10 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
   const tonRows=Object.keys(TON).map(ma=>({ma,t:TON[ma]})).filter(r=>Math.abs(r.t)>0.001).sort((a,b)=>a.t-b.t);
   html+=`<div class="sect">📦 ${isCN?'TỒN CHI NHÁNH (đã nhận)':'TỒN KHO (nhập+SX−tiêu hao−xuất)'} · giá trị ~${fmt(giaTri)}</div>`;
   html+=tonRows.length?tonRows.map(r=>`<div class="trow"><span>${icon[tags[r.ma]]||''} ${NAME[r.ma]?.ten||r.ma}</span><span class="r ${r.t<0?'neg':''}">${fmt(r.t)} ${NAME[r.ma]?.dvt||''}</span></div>`).join(""):'<div class="empty">Chưa có.</div>';
+  if(totTuMua>0||tuMuaItems.length){
+    html+=`<div class="sect">🛒 Chi phí hàng TỰ MUA (mua ngoài) ~${fmt(totTuMua)}đ</div>`;
+    if(!isCN){const bks=Object.keys(tuMuaCost);html+=bks.map(b=>`<div class="trow"><span><b>${b}</b></span><span class="r" style="color:var(--purple)">${fmt(tuMuaCost[b])}đ</span></div>`).join("");}
+    html+=tuMuaItems.slice(0,40).map(i=>`<div class="trow"><span>${isCN?'':i.dv+' · '}${i.ten} · ${i.ngay}</span><span class="r">${fmt(i.sl)} ${i.dvt} × ${fmt(i.gia)} = <b style="color:var(--purple)">${fmt(i.c)}đ</b></span></div>`).join("");}
   const lastChot={},ckSeen={};ck.filter(c=>isCN?c.don_vi_id===myDV:(!c.don_vi_id||c.don_vi_id==='XUONG')).forEach(c=>{if(!ckSeen[c.ma]){ckSeen[c.ma]=1;lastChot[c.ma]=c.created_at;}});
   const seen={},kkLatest=[];kk.filter(k=>isCN?k.don_vi_id===myDV:(!k.don_vi_id||k.don_vi_id==='XUONG')).forEach(k=>{if(seen[k.ma])return;seen[k.ma]=1;if(!lastChot[k.ma]||k.created_at>lastChot[k.ma])kkLatest.push(k);});
   _KKL={};kkLatest.forEach(k=>_KKL[k.ma]=Number(k.sl_thuc_te));
@@ -450,7 +465,7 @@ function hasCT(ma){return RECIPES.some(r=>r.tp_ma===ma);}
 function noCT(i,kind){const needs=(kind==='tp'&&i.loai!=='TP_THANG')||(kind==='nvl'&&i.loai==='BTP');return (needs&&!hasCT(i.ma))?' <span class="badge warn">⚠️ chưa có CT</span>':'';}
 function renderItems(b,kind){const list=kind==='nvl'?NVL:TP;const title=kind==='nvl'?'nguyên liệu':'thành phẩm';
   b.innerHTML=`<input class="search" id="qs" placeholder="🔍 Tìm ${title}..."><button class="addbtn" id="qadd">+ Thêm ${title} mới</button><div id="qitems"></div>`;const cont=$("#qitems");
-  function draw(f){f=(f||'').toLowerCase();cont.innerHTML=list.filter(i=>(i.ten+i.ma).toLowerCase().includes(f)).map(i=>{const sub=kind==='nvl'?`${i.nhom||''} · ${i.dvt||''} · ${fmt(i.don_gia)}đ`:`${i.dvt||''} · giá xuất ${fmt(i.gia_xuat)}đ`;const bd=kind==='tp'?badge(i.loai):badge(i.loai==='BTP'?'BTP':'');const shipBd=(kind==='nvl'&&i.giao_di)?' <span class="badge thang">🚚 Giao đi</span>':'';return `<div class="qcard" data-ma="${i.ma}"><div class="qhead"><div class="qi"><b>${i.ten} ${bd}${shipBd}${noCT(i,kind)}</b><small>${i.ma} · ${sub}</small></div><button class="linkbtn edit">Sửa</button></div></div>`;}).join("")||'<div class="empty">Không có.</div>';cont.querySelectorAll('.edit').forEach(btn=>btn.onclick=e=>openForm(e.target.closest('.qcard'),kind,e.target.closest('.qcard').dataset.ma));}
+  function draw(f){f=(f||'').toLowerCase();_cost={};cont.innerHTML=list.filter(i=>(i.ten+i.ma).toLowerCase().includes(f)).map(i=>{const sub=kind==='nvl'?`${i.nhom||''} · ${i.dvt||''} · ${fmt(i.don_gia)}đ`:`${i.dvt||''} · giá xuất ${fmt(i.gia_xuat)}đ · vốn ~${fmt(unitCost(i.ma))}`;const bd=kind==='tp'?badge(i.loai):badge(i.loai==='BTP'?'BTP':'');const shipBd=(kind==='nvl'&&i.giao_di)?' <span class="badge thang">🚚 Giao đi</span>':'';return `<div class="qcard" data-ma="${i.ma}"><div class="qhead"><div class="qi"><b>${i.ten} ${bd}${shipBd}${noCT(i,kind)}</b><small>${i.ma} · ${sub}</small></div><button class="linkbtn edit">Sửa</button></div></div>`;}).join("")||'<div class="empty">Không có.</div>';cont.querySelectorAll('.edit').forEach(btn=>btn.onclick=e=>openForm(e.target.closest('.qcard'),kind,e.target.closest('.qcard').dataset.ma));}
   draw('');$("#qs").oninput=e=>draw(e.target.value);$("#qadd").onclick=()=>{const tmp=document.createElement('div');tmp.className='qcard';cont.prepend(tmp);openForm(tmp,kind,null);};}
 function openForm(card,kind,ma){const it=ma?(kind==='nvl'?NVL:TP).find(x=>x.ma===ma):{};
   let html='<div class="qform"><div><label>Tên</label><input id="f_ten" value="'+(it.ten||'')+'"></div>';
@@ -475,7 +490,8 @@ function drawCT(tpma){const body=$("#ctbody");if(!tpma){body.innerHTML='';return
       <div style="font-size:11px;color:var(--mut);margin-top:7px;line-height:1.45">💡 Đơn vị do quản lý đặt, nhân viên chỉ nhập số. Nếu món cần 2 đơn vị (nấu ra <b>kg</b> rồi đóng gói <b>phần</b>): tách 2 món — vd "Bò Hầm Kg" (Bán TP) + "Bò Hầm Phần" (Thành phẩm, công thức dùng Bò Hầm Kg).</div>
     </div>
     <div class="grp">Nguyên liệu / mẻ</div>`;
-  html+=rows.length?rows.map(r=>`<div class="ing" data-id="${r.id}"><div class="nm">${NAME[r.nvl_ma]?.ten||r.nvl_ma}</div><div class="dl">${fmt(r.dinh_luong)} ${NAME[r.nvl_ma]?.dvt||''}</div><button class="rm">✕</button></div>`).join(""):'<div class="empty" style="padding:20px">Chưa có nguyên liệu.</div>';
+  _cost={};
+  html+=rows.length?rows.map(r=>{const uc=unitCost(r.nvl_ma),line=Number(r.dinh_luong)*uc;return `<div class="ing" data-id="${r.id}"><div class="nm">${NAME[r.nvl_ma]?.ten||r.nvl_ma}<br><small style="color:var(--mut)">${fmt(r.dinh_luong)} ${NAME[r.nvl_ma]?.dvt||''} × ${fmt(uc)} = <b style="color:var(--amber)">${fmt(line)}</b></small></div><button class="rm">✕</button></div>`;}).join(""):'<div class="empty" style="padding:20px">Chưa có nguyên liệu.</div>';
   const opts=[...NVL].sort((a,b)=>a.ten.localeCompare(b.ten)).map(n=>`<option value="${n.ma}">${n.ten} (${n.dvt||''})</option>`).join("");
   html+=`<div class="adding"><div class="frow"><select id="ing-nvl" style="flex:2;border:1px solid var(--line);border-radius:9px;padding:10px">${opts}</select><input id="ing-dl" type="number" placeholder="Định lượng" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:10px"></div><button id="ing-add">+ Thêm nguyên liệu</button></div>`;
   body.innerHTML=html;
