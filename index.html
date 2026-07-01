@@ -100,6 +100,7 @@ nav button .ic{font-size:19px;line-height:1;}nav button.on{color:var(--blue);}
     <div class="daterow" id="daterow"><label>📅 Ngày</label><input type="date" id="ngay"></div>
   </header>
   <div class="online" id="status">🟢 Đang kết nối…</div>
+  <div id="alertbar" style="display:none"></div>
 
   <section class="view on" id="v-nhap"><input class="search" id="s-nhap" placeholder="🔍 Tìm nguyên vật liệu..."><div id="list-nhap"><div class="loading">Đang tải…</div></div></section>
   <section class="view" id="v-sx"></section>
@@ -160,7 +161,7 @@ function applyRole(){const allowed=ROLE_TABS[SESSION.vai_tro]||['bc'];
   $("#tab-tk").style.display=SESSION.vai_tro==='tong'?'':'none';
   $("#hsub").textContent=(SESSION.ten_hien_thi||SESSION.ten_dn)+' · '+(ROLE_NAME[SESSION.vai_tro]||'')+(SESSION.don_vi_id?(' ('+SESSION.don_vi_id+')'):'');
   switchTab(allowed[0]);}
-function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();loadCatalog();}
+function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();loadCatalog().then(()=>{try{checkAlerts();}catch(e){}});}
 
 /* ===== DANH MỤC ===== */
 async function loadCatalog(){try{
@@ -183,6 +184,23 @@ async function loadCatalog(){try{
   upd();
 }catch(e){$("#status").textContent="🔴 Lỗi: "+(e.message||e);$("#status").style.background="#fef2f2";$("#status").style.color="#b91c1c";}}
 
+/* ===== 🔒 KHOÁ ĐẶT HÀNG khi chi nhánh còn phiếu chưa nhận + banner nhắc (chỉ chi nhánh) ===== */
+let _pending={n:0,maxDays:0};
+async function checkAlerts(){const bar=$("#alertbar");if(!bar||!SESSION)return;
+  if(SESSION.vai_tro!=='chi_nhanh'){bar.style.display='none';_pending={n:0,maxDays:0};return;}
+  try{const {data,error}=await sb.from('xuat').select('ngay').eq('don_vi_id',SESSION.don_vi_id).eq('trang_thai','cho_nhan');
+    if(error)return;
+    const n=(data||[]).length;const today=new Date();today.setHours(0,0,0,0);let maxDays=0;
+    (data||[]).forEach(p=>{const d=new Date(p.ngay+'T00:00:00');const days=Math.round((today-d)/86400000);if(days>maxDays)maxDays=days;});
+    _pending={n,maxDays};
+    if(n>0){const overdue=maxDays>2,ageTxt=maxDays>0?` (cũ nhất ${maxDays} ngày)`:'';
+      bar.innerHTML=`<span style="flex:1;cursor:pointer">🔒 Bạn còn <b>${n}</b> phiếu hàng CHƯA NHẬN${ageTxt}. Vào <b>Nhận hàng</b> xác nhận đã nhận thì mới đặt đơn mới được.</span>`;
+      bar.style.cssText=`display:flex;align-items:center;gap:10px;margin:0 12px 6px;padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:600;line-height:1.4;${overdue?'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca':'background:#fffbeb;color:#b45309;border:1px solid #fde68a'}`;
+      bar.querySelector('span').onclick=()=>switchTab('nhan');
+    }else bar.style.display='none';
+    if($("#v-dat")&&$("#v-dat").classList.contains('on'))renderDat();
+  }catch(e){}}
+
 /* ===== LIST nhập/xuất/đặt ===== */
 function rowHTML(it,cls){const isX=cls==='x';const ex=isX?` · <span style="color:var(--amber)">vốn ~${fmt(unitCost(it.ma))}</span>`:'';const gx=isX?`<div style="margin-top:4px;font-size:12px;color:var(--mut)">giá xuất <input type="number" inputmode="decimal" class="gx" value="${giaTP(it.ma)||''}" placeholder="0" style="width:84px;text-align:center;border:1px solid var(--line);border-radius:7px;padding:4px 6px;font-weight:600;color:var(--ink)"> đ</div>`:'';return `<div class="row" data-ma="${it.ma}"><div class="nm"><b>${it.ten}</b><small>${it.ma} · ${it.dvt||""}${ex}</small>${gx}</div><div class="qty"><button type="button" class="minus">−</button><input type="number" inputmode="decimal" min="0" placeholder="0" class="q ${cls}"><button type="button" class="plus">+</button></div></div>`;}
 function wireRows(el,cls){el.querySelectorAll(".row").forEach(r=>{const inp=r.querySelector("input.q");
@@ -192,6 +210,7 @@ function wireRows(el,cls){el.querySelectorAll(".row").forEach(r=>{const inp=r.qu
 function renderList(el,items,cls){let html="",grp=null;items.forEach(it=>{if(it.nhom&&it.nhom!==grp){grp=it.nhom;html+=`<div class="grp">${grp}</div>`;}html+=rowHTML(it,cls);});el.innerHTML=html;wireRows(el,cls);}
 /* Đặt hàng: tách Từ kho / Mua ngoài theo cài đặt chi nhánh */
 function renderDat(){const dv=SESSION.don_vi_id;const ng=NGUON[dv]||{};
+  if(_pending.n>0){$("#list-dat").innerHTML=`<div class="meinfo" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca;font-weight:600;line-height:1.5">🔒 <b>Chưa thể đặt đơn mới.</b><br>Bạn còn <b>${_pending.n}</b> phiếu hàng chưa xác nhận nhận${_pending.maxDays>0?` (cũ nhất ${_pending.maxDays} ngày)`:''}. Hãy vào tab <b>Nhận hàng</b> xác nhận đã nhận các đơn cũ, rồi mới đặt đơn mới.</div><button class="addbtn" id="dat-gonhan" style="border-color:var(--green);background:#f0fdf4;color:var(--green)">✅ Đi tới Nhận hàng</button>`;const g=$("#dat-gonhan");if(g)g.onclick=()=>switchTab('nhan');const sd=$("#save-dat");if(sd){sd.disabled=true;sd.textContent='🔒 Nhận đơn cũ trước';}return;}
   const kho=SHIP.filter(t=>ng[t.ma]!=='ngoai'),ngoai=SHIP.filter(t=>ng[t.ma]==='ngoai');
   let html=`<button class="addbtn" id="dat-setting" style="border-color:var(--purple);background:#f5f3ff;color:var(--purple)">⚙️ Cài đặt nguồn hàng (Kho / Mua ngoài)</button>`;
   html+=`<div style="margin-bottom:10px"><label style="font-size:12px;color:var(--mut);font-weight:600;display:block;margin-bottom:4px">📝 Ghi chú / yêu cầu lẻ (gửi kho)</label><input id="dat-note" class="search" placeholder="VD: giao gấp, xin thêm món ngoài danh sách…" style="margin:0"></div>`;
@@ -226,7 +245,7 @@ async function saveXuat(){const items=collect("#list-xuat");if(!items.length||!b
   try{const {data:h,error}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:branch,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan'}).select().single();if(error)throw error;
     await sb.from('xuat_ct').insert(items.map(i=>{const r=document.querySelector('#list-xuat .row[data-ma="'+i.ma+'"]');const g=r?(+r.querySelector('input.gx')?.value||0):0;return {xuat_id:h.id,tp_ma:i.ma,sl_xuat:i.sl,gia_xuat:g||null};}));
     clearInputs("#list-xuat");toast("✅ Đã lưu phiếu xuất → "+branch);}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
-async function saveDat(){const items=collect("#list-dat");if(!items.length)return;$("#save-dat").disabled=true;$("#save-dat").textContent="Đang gửi…";
+async function saveDat(){if(_pending.n>0){toast('🔒 Còn phiếu chưa nhận — xác nhận ở tab Nhận hàng trước',true);switchTab('nhan');return;}const items=collect("#list-dat");if(!items.length)return;$("#save-dat").disabled=true;$("#save-dat").textContent="Đang gửi…";
   const note=$("#dat-note")?.value?.trim()||null;
   const ng=NGUON[SESSION.don_vi_id]||{};
   try{const {data:h,error}=await sb.from('yeu_cau').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'moi',ghi_chu:note}).select().single();if(error)throw error;
@@ -235,7 +254,7 @@ async function saveDat(){const items=collect("#list-dat");if(!items.length)retur
     const ngoai=items.filter(i=>ng[i.ma]==='ngoai');let nMsg='';
     if(ngoai.length){const {data:xh,error:xe}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true}).select().single();
       if(!xe&&xh){await sb.from('xuat_ct').insert(ngoai.map(i=>({xuat_id:xh.id,tp_ma:i.ma,sl_xuat:i.sl,ghi_chu:'tự mua ngoài'})));nMsg=' · 🛒 '+ngoai.length+' món mua ngoài → vào tab Nhận hàng điền SL & giá';}}
-    clearInputs("#list-dat");renderDat();toast("✅ Đã gửi phiếu yêu cầu"+nMsg);}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
+    clearInputs("#list-dat");toast("✅ Đã gửi phiếu yêu cầu"+nMsg);renderDat();checkAlerts();}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
 $("#save-nhap").onclick=saveNhap;$("#save-xuat").onclick=saveXuat;$("#save-dat").onclick=saveDat;
 
 /* ===== Kho: xem phiếu yêu cầu (trên màn Xuất) ===== */
@@ -278,7 +297,7 @@ async function confirmNhan(card,id){
     const extra=[...card.querySelectorAll('.extra .ing')].map(d=>({xuat_id:id,tp_ma:d.querySelector('.exma').value,sl_xuat:0,sl_thuc_nhan:+d.querySelector('.exsl').value||0,ghi_chu:'thêm khi nhận'})).filter(x=>x.sl_thuc_nhan>0);
     if(extra.length)await sb.from('xuat_ct').insert(extra);
     await sb.from('xuat').update({trang_thai:'da_nhan'}).eq('id',id);
-    toast(tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();
+    toast(tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();checkAlerts();
   }catch(e){toast('Lỗi: '+(e.message||e),true);}}
 
 /* ===== 🍳 SẢN XUẤT ===== */
