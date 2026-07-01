@@ -360,6 +360,15 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
     const bs=Object.keys(bRev);html+=bs.length?bs.map(b=>`<div class="trow"><span><b>${b}</b></span><span style="color:var(--green)">${fmt(bRev[b])}đ</span><span class="r" style="color:var(--amber)">${fmt(bCost[b])}k</span></div>`).join(""):'<div class="empty">Chưa có.</div>';
     html+=`<div class="sect">📥 Nhận thực tế từng chi nhánh</div>`;
     const rb=Object.keys(bRecv);html+=rb.length?rb.map(b=>`<div class="trow"><span>${b}</span><span class="r">${fmt(bRecv[b])} phần (đã xác nhận)</span></div>`).join(""):'<div class="empty">Chưa có phiếu đã nhận.</div>';
+    // 📦 Tồn từng chi nhánh (chi tiết từng món) — Kho/Tổng xem được tồn tại mỗi CN
+    const cnTon={};
+    xx.forEach(p=>{if(p.trang_thai!=='da_nhan')return;const dv=p.don_vi_id;(p.xuat_ct||[]).forEach(l=>{const o=(cnTon[dv]=cnTon[dv]||{});o[l.tp_ma]=(o[l.tp_ma]||0)+Number(l.sl_thuc_nhan||0);});});
+    ck.forEach(c=>{if(!c.don_vi_id||c.don_vi_id==='XUONG')return;const o=(cnTon[c.don_vi_id]=cnTon[c.don_vi_id]||{});o[c.ma]=(o[c.ma]||0)-Number(c.hao_hut||0);});
+    window.__cnTon=cnTon;
+    const cnList=DV.map(d=>d.id).filter(id=>cnTon[id]&&Object.keys(cnTon[id]).length);
+    html+=`<div class="sect">📦 Tồn từng chi nhánh (đã nhận + tự mua − hao hụt)</div>`;
+    if(!cnList.length)html+='<div class="empty">Chưa có chi nhánh nào nhận hàng.</div>';
+    else html+=`<div class="qltabs" id="cnton-tabs">`+cnList.map((id,i)=>`<button data-cn="${id}" class="${i===0?'on':''}">${id}</button>`).join("")+`</div><div id="cnton-body"></div>`;
   }
   let TON={},tags={};
   if(!isCN){const allMa=[...new Set([...Object.keys(nhapNVL),...Object.keys(prod),...Object.keys(consumed),...Object.keys(sold)])];
@@ -399,7 +408,11 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
   html+=`<div class="meinfo" style="margin-top:14px">⚠️ Đơn vị giá bán (đ) và cost (k) trong file gốc chưa đồng nhất — số cost còn mang tính tham khảo, sẽ chuẩn hóa ở bước tinh chỉnh.</div>`;
   el.innerHTML=html;
   const now=new Date(),pad=n=>String(n).padStart(2,'0'),lstr=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());$("#bc-from").value=lstr(new Date(now.getFullYear(),now.getMonth(),1));$("#bc-to").value=lstr(now);
-  $("#bc-export").onclick=exportBC;$("#bc-kk").onclick=renderKiemKe;$("#bc-detail").onclick=exportDetail;if($("#bc-chot"))$("#bc-chot").onclick=chotSo;}
+  $("#bc-export").onclick=exportBC;$("#bc-kk").onclick=renderKiemKe;$("#bc-detail").onclick=exportDetail;if($("#bc-chot"))$("#bc-chot").onclick=chotSo;
+  if($("#cnton-tabs")){const tabs=$("#cnton-tabs");tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderCnTon(b.dataset.cn);});renderCnTon(tabs.querySelector('button').dataset.cn);}}
+function renderCnTon(dv){const el=$("#cnton-body");if(!el)return;const t=(window.__cnTon||{})[dv]||{};const icon={NVL:'🥩',BTP:'🍲',CCDC:'📦',TP:'🍱'};
+  const rows=Object.keys(t).map(ma=>({ma,v:t[ma]})).filter(r=>Math.abs(r.v)>0.001).sort((a,b)=>a.v-b.v);
+  el.innerHTML=rows.length?rows.map(r=>{const tg=(NVL.find(n=>n.ma===r.ma)?.loai)||(TP.find(x=>x.ma===r.ma)?'TP':'');return `<div class="trow"><span>${icon[tg]||''} ${NAME[r.ma]?.ten||r.ma}</span><span class="r ${r.v<0?'neg':''}">${fmt(r.v)} ${NAME[r.ma]?.dvt||''}</span></div>`;}).join(""):'<div class="empty">Chi nhánh này chưa có tồn.</div>';}
 async function chotSo(){
   if(!Object.keys(_KKL).length){toast('Chưa có số kiểm tồn để chốt',true);return;}
   if(!confirm('CHỐT SỔ: tồn sổ sẽ chỉnh = số đếm thực tế, phần chênh lệch ghi nhận hao hụt (lưu lại trong báo cáo). Tiếp tục?'))return;
