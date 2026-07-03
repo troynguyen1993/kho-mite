@@ -188,7 +188,9 @@ async function loadCatalog(){try{
 let _pending={n:0,maxDays:0},_needStock=false;
 // Hạn báo tồn: sau ngày 2 đầu tháng phải có kiểm tồn của THÁNG TRƯỚC
 function _prevMonthKey(d){const y=d.getFullYear(),m=d.getMonth();const py=m===0?y-1:y,pm=m===0?11:m-1;return py+'-'+String(pm+1).padStart(2,'0');}
-function _stockOverdue(kks,now){now=now||new Date();if(now.getDate()<=2)return false;const pk=_prevMonthKey(now);return !(kks||[]).some(k=>(k.ngay||'').slice(0,7)===pk);}
+function _stockOverdue(kks,now){now=now||new Date();if(now.getDate()<=2)return false;const pk=_prevMonthKey(now);const cm=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  // Coi là đã báo tồn tháng trước nếu: số đếm thuộc tháng trước, HOẶC đếm sáng ngày 1-2 đầu tháng này (báo tồn cuối tháng làm trễ 1-2 ngày)
+  return !(kks||[]).some(k=>{const ym=(k.ngay||'').slice(0,7),day=parseInt((k.ngay||'').slice(8,10),10);return ym===pk||(ym===cm&&day<=2);});}
 async function checkAlerts(){const bar=$("#alertbar");if(!bar||!SESSION)return;
   _pending={n:0,maxDays:0};
   if(SESSION.vai_tro!=='chi_nhanh'){if(SESSION.vai_tro==='tong'||SESSION.vai_tro==='ke_toan')await alertPendingChot(bar);else bar.style.display='none';return;}
@@ -440,27 +442,22 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
     html+=`<div class="sect">🛒 Chi phí hàng TỰ MUA (mua ngoài) ~${fmt(totTuMua)}đ</div>`;
     if(!isCN){const bks=Object.keys(tuMuaCost);html+=bks.map(b=>`<div class="trow"><span><b>${b}</b></span><span class="r" style="color:var(--purple)">${fmt(tuMuaCost[b])}đ</span></div>`).join("");}
     html+=tuMuaItems.slice(0,40).map(i=>`<div class="trow"><span>${isCN?'':i.dv+' · '}${i.ten} · ${i.ngay}</span><span class="r">${fmt(i.sl)} ${i.dvt} × ${fmt(i.gia)} = <b style="color:var(--purple)">${fmt(i.c)}đ</b></span></div>`).join("");}
-  const lastChot={},ckSeen={};ck.filter(c=>isCN?c.don_vi_id===myDV:(!c.don_vi_id||c.don_vi_id==='XUONG')).forEach(c=>{if(!ckSeen[c.ma]){ckSeen[c.ma]=1;lastChot[c.ma]=c.created_at;}});
-  const seen={},kkLatest=[];kk.filter(k=>isCN?k.don_vi_id===myDV:(!k.don_vi_id||k.don_vi_id==='XUONG')).forEach(k=>{if(seen[k.ma])return;seen[k.ma]=1;if(!lastChot[k.ma]||k.created_at>lastChot[k.ma])kkLatest.push(k);});
-  _KKL={};kkLatest.forEach(k=>_KKL[k.ma]=Number(k.sl_thuc_te));
-  const smallInfo=k=>{const parts=[];if(k.ngay)parts.push('📅 đếm '+k.ngay);if(k.nguoi)parts.push('👤 '+k.nguoi);return parts.length?`<br><small style="color:var(--mut)">${parts.join(' · ')}</small>`:'';};
-  if(kkLatest.length){html+=`<div class="sect">🔍 Hao hụt${isCN?'':' KHO XƯỞNG'}: Đếm thực tế vs Sổ máy (chưa chốt)</div>`;
-    html+=kkLatest.map(k=>{const so=TON[k.ma]||0,th=Number(k.sl_thuc_te),lech=th-so;return `<div class="trow"><span>${NAME[k.ma]?.ten||k.ma}${smallInfo(k)}</span><span class="r ${lech<0?'neg':''}">Sổ ${fmt(so)} · Đếm ${fmt(th)} · lệch ${lech>0?'+':''}${fmt(lech)}</span></div>`;}).join("");
-    if(canChot)html+=`<button id="bc-chot" style="width:100%;border:none;border-radius:11px;padding:13px;margin-top:6px;font-weight:700;color:#fff;background:var(--ink)">🔒 Chốt sổ ${isCN?'chi nhánh':'KHO XƯỞNG'} (sổ = thực tế, lưu hao hụt)</button>`;
-    else if(isCN)html+=`<div class="meinfo">ℹ️ Bạn đã đếm xong — Tổng/Kế toán sẽ chốt sổ.</div>`;}
-  // 🔍 Hao hụt + Chốt sổ TỪNG CHI NHÁNH (chỉ Tổng/Kế toán được chốt)
-  if(canChot){window._branchChot={};DV.forEach(d=>{const dv=d.id;
-    const lc={},lcSeen={};ck.filter(c=>c.don_vi_id===dv).forEach(c=>{if(!lcSeen[c.ma]){lcSeen[c.ma]=1;lc[c.ma]=c.created_at;}});
-    const sn={},latest=[];kk.filter(k=>k.don_vi_id===dv).forEach(k=>{if(sn[k.ma])return;sn[k.ma]=1;if(!lc[k.ma]||k.created_at>lc[k.ma])latest.push(k);});
-    if(!latest.length)return;
-    const son=(window.__cnTon||{})[dv]||{};window._branchChot[dv]={ton:son,kkl:{}};latest.forEach(k=>window._branchChot[dv].kkl[k.ma]=Number(k.sl_thuc_te));
-    html+=`<div class="sect">🔍 Hao hụt chi nhánh ${dv}: Đếm vs Sổ (chưa chốt)</div>`;
-    html+=latest.map(k=>{const so=son[k.ma]||0,th=Number(k.sl_thuc_te),lech=th-so;return `<div class="trow"><span>${NAME[k.ma]?.ten||k.ma}${smallInfo(k)}</span><span class="r ${lech<0?'neg':''}">Sổ ${fmt(so)} · Đếm ${fmt(th)} · lệch ${lech>0?'+':''}${fmt(lech)}</span></div>`;}).join("");
-    html+=`<button class="bc-chot-cn" data-dv="${dv}" style="width:100%;border:none;border-radius:11px;padding:13px;margin-top:6px;font-weight:700;color:#fff;background:var(--purple)">🔒 Chốt sổ chi nhánh ${dv}</button>`;
-  });}
-  const ckMine=isCN?ck.filter(c=>c.don_vi_id===myDV):ck.slice();
-  if(ckMine.length){html+=`<div class="sect">📒 Hao hụt đã chốt (lịch sử)</div>`;
-    html+=ckMine.slice(0,40).map(c=>`<div class="trow"><span>${!isCN?'<b>'+(c.don_vi_id||'XUONG')+'</b> · ':''}${c.ngay} · ${NAME[c.ma]?.ten||c.ma}${c.nguoi?`<br><small style="color:var(--mut)">🔒 chốt: ${c.nguoi}</small>`:''}</span><span class="r ${Number(c.hao_hut)>0?'neg':''}">sổ ${fmt(c.sl_so)}→thực ${fmt(c.sl_thuc)} · hao ${fmt(c.hao_hut)}</span></div>`).join("");}
+  // 🔍 Hao hụt & Chốt sổ — chia sub-tab theo NƠI (🏭 Xưởng + từng chi nhánh)
+  _KKL={};
+  const haoLocs=isCN?[myDV]:['XUONG',...DV.map(d=>d.id)];
+  window.__haoData={};window._branchChot={};
+  haoLocs.forEach(loc=>{const isX=loc==='XUONG';
+    const lc={},lcSeen={};ck.filter(c=>(c.don_vi_id||'XUONG')===loc).forEach(c=>{if(!lcSeen[c.ma]){lcSeen[c.ma]=1;lc[c.ma]=c.created_at;}});
+    const sn={},latest=[];kk.filter(k=>(k.don_vi_id||'XUONG')===loc).forEach(k=>{if(sn[k.ma])return;sn[k.ma]=1;if(!lc[k.ma]||k.created_at>lc[k.ma])latest.push(k);});
+    const ton=isX?TON:(isCN?TON:((window.__cnTon||{})[loc]||{}));
+    window.__haoData[loc]={latest,ton,hist:ck.filter(c=>(c.don_vi_id||'XUONG')===loc)};
+    if(isX)latest.forEach(k=>_KKL[k.ma]=Number(k.sl_thuc_te));
+    else{window._branchChot[loc]={ton,kkl:{}};latest.forEach(k=>window._branchChot[loc].kkl[k.ma]=Number(k.sl_thuc_te));}
+  });
+  const haoShow=haoLocs.filter(loc=>{const d=window.__haoData[loc];return d.latest.length||d.hist.length;});
+  html+=`<div class="sect">🔍 Hao hụt & Chốt sổ</div>`;
+  if(!haoShow.length)html+='<div class="empty">Chưa có kiểm tồn / chốt sổ.</div>';
+  else html+=`<div class="qltabs" id="hao-tabs">`+haoShow.map((loc,i)=>`<button data-loc="${loc}" class="${i===0?'on':''}">${loc==='XUONG'?'🏭 Xưởng':loc}</button>`).join("")+`</div><div id="hao-body"></div>`;
   if(!isCN){
     const lech=[];sx.forEach(s=>(s.san_xuat_ct||[]).forEach(c=>{const dm=Number(c.sl_dinh_muc||0),tt=Number(c.sl_tieu_hao||0);if(Math.abs(tt-dm)>0.001)lech.push({sp:s.item_ten,ngay:s.ngay,ten:NAME[c.nvl_ma]?.ten||c.nvl_ma,dm,tt,dvt:NAME[c.nvl_ma]?.dvt||''});}));
     html+=`<div class="sect">⚠️ Lệch định mức sản xuất (thực tế ≠ chuẩn)</div>`;
@@ -477,6 +474,7 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
   $("#bc-export").onclick=exportBC;$("#bc-kk").onclick=renderKiemKe;$("#bc-detail").onclick=exportDetail;if($("#bc-chot"))$("#bc-chot").onclick=chotSo;
   document.querySelectorAll('.bc-chot-cn').forEach(b=>b.onclick=()=>chotSoCN(b.dataset.dv));
   if($("#cnton-tabs")){const tabs=$("#cnton-tabs");tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{tabs.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderCnTon(b.dataset.cn);});renderCnTon(tabs.querySelector('button').dataset.cn);}
+  if($("#hao-tabs")){const ht=$("#hao-tabs");ht.querySelectorAll('button').forEach(b=>b.onclick=()=>{ht.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderHaoTab(b.dataset.loc);});renderHaoTab(ht.querySelector('button').dataset.loc);}
   bcTabify();}
 /* Chia Báo cáo thành các tab (nhóm các mục sau khi render, giữ nguyên tính toán & sự kiện) */
 function bcTabify(){const el=$("#v-bc");if(!el)return;const isCN=SESSION.vai_tro==='chi_nhanh';
@@ -497,6 +495,19 @@ function renderCnTon(dv){const el=$("#cnton-body");if(!el)return;const t=(window
   const rows=Object.keys(t).map(ma=>({ma,v:t[ma]})).filter(r=>Math.abs(r.v)>0.001).sort((a,b)=>a.v-b.v);
   let val=0;rows.forEach(r=>{const dg=(NVL.find(n=>n.ma===r.ma)?.don_gia)||giaTP(r.ma)||0;val+=r.v*dg;});
   el.innerHTML=(rows.length?`<div style="font-size:12px;color:var(--mut);margin:2px 2px 7px">Giá trị tồn ~<b>${fmt(val)}</b> · ${rows.length} món</div>`:'')+(rows.length?rows.map(r=>{const tg=(NVL.find(n=>n.ma===r.ma)?.loai)||(TP.find(x=>x.ma===r.ma)?'TP':'');return `<div class="trow"><span>${icon[tg]||''} ${NAME[r.ma]?.ten||r.ma}</span><span class="r ${r.v<0?'neg':''}">${fmt(r.v)} ${NAME[r.ma]?.dvt||''}</span></div>`;}).join(""):'<div class="empty">Nơi này chưa có tồn.</div>');}
+function renderHaoTab(loc){const el=$("#hao-body");if(!el)return;const d=(window.__haoData||{})[loc];if(!d){el.innerHTML='';return;}
+  const canChot=SESSION.vai_tro==='tong'||SESSION.vai_tro==='ke_toan',isCN=SESSION.vai_tro==='chi_nhanh';
+  const si=k=>{const p=[];if(k.ngay)p.push('📅 đếm '+k.ngay);if(k.nguoi)p.push('👤 '+k.nguoi);return p.length?`<br><small style="color:var(--mut)">${p.join(' · ')}</small>`:'';};
+  let html='';
+  if(d.latest.length){html+=`<div class="grp">Chưa chốt — Đếm thực tế vs Sổ máy</div>`;
+    html+=d.latest.map(k=>{const so=d.ton[k.ma]||0,th=Number(k.sl_thuc_te),lech=th-so;return `<div class="trow"><span>${NAME[k.ma]?.ten||k.ma}${si(k)}</span><span class="r ${lech<0?'neg':''}">Sổ ${fmt(so)} · Đếm ${fmt(th)} · lệch ${lech>0?'+':''}${fmt(lech)}</span></div>`;}).join("");
+    if(canChot)html+=`<button class="hao-chot" data-loc="${loc}" style="width:100%;border:none;border-radius:11px;padding:13px;margin-top:6px;font-weight:700;color:#fff;background:${loc==='XUONG'?'var(--ink)':'var(--purple)'}">🔒 Chốt sổ ${loc==='XUONG'?'kho xưởng':'chi nhánh '+loc} (sổ = thực tế)</button>`;
+    else if(isCN)html+=`<div class="meinfo">ℹ️ Bạn đã đếm xong — Tổng/Kế toán sẽ chốt sổ.</div>`;
+  }else html+='<div class="empty" style="padding:16px">Không có số kiểm tồn chưa chốt.</div>';
+  if(d.hist.length){html+=`<div class="grp">📒 Đã chốt (lịch sử)</div>`;
+    html+=d.hist.slice(0,30).map(c=>`<div class="trow"><span>${c.ngay} · ${NAME[c.ma]?.ten||c.ma}${c.nguoi?`<br><small style="color:var(--mut)">🔒 chốt: ${c.nguoi}</small>`:''}</span><span class="r ${Number(c.hao_hut)>0?'neg':''}">sổ ${fmt(c.sl_so)}→thực ${fmt(c.sl_thuc)} · hao ${fmt(c.hao_hut)}</span></div>`).join("");}
+  el.innerHTML=html;
+  const cb=el.querySelector('.hao-chot');if(cb)cb.onclick=()=>{if(cb.dataset.loc==='XUONG')chotSo();else chotSoCN(cb.dataset.loc);};}
 async function chotSo(){
   if(!Object.keys(_KKL).length){toast('Chưa có số kiểm tồn để chốt',true);return;}
   if(!confirm('CHỐT SỔ: tồn sổ sẽ chỉnh = số đếm thực tế, phần chênh lệch ghi nhận hao hụt (lưu lại trong báo cáo). Tiếp tục?'))return;
