@@ -111,7 +111,7 @@ nav button .ic{font-size:19px;line-height:1;}nav button.on{color:var(--blue);}
   <section class="view" id="v-ql">
     <div class="qltabs" id="qltabs">
       <button data-q="nvl" class="on">Nguyên liệu</button><button data-q="tp">Thành phẩm</button>
-      <button data-q="ct">Công thức</button><button data-q="ngcn">Nguồn CN</button><button data-q="tk" id="tab-tk" style="display:none">Tài khoản</button>
+      <button data-q="ct">Công thức</button><button data-q="ngcn" id="tab-ngcn" style="display:none">Nguồn CN</button><button data-q="tk" id="tab-tk" style="display:none">Tài khoản</button>
     </div><div id="ql-body"></div>
   </section>
 
@@ -159,6 +159,7 @@ $("#logout").onclick=()=>{localStorage.removeItem('kho_session');location.reload
 function applyRole(){const allowed=ROLE_TABS[SESSION.vai_tro]||['bc'];
   document.querySelectorAll('nav button').forEach(b=>b.style.display=allowed.includes(b.dataset.v)?'':'none');
   $("#tab-tk").style.display=SESSION.vai_tro==='tong'?'':'none';
+  $("#tab-ngcn").style.display=SESSION.vai_tro==='tong'?'':'none';
   $("#hsub").textContent=(SESSION.ten_hien_thi||SESSION.ten_dn)+' · '+(ROLE_NAME[SESSION.vai_tro]||'')+(SESSION.don_vi_id?(' ('+SESSION.don_vi_id+')'):'');
   switchTab(allowed[0]);}
 function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();loadCatalog().then(()=>{try{checkAlerts();}catch(e){}});}
@@ -241,13 +242,13 @@ function renderDat(){const dv=SESSION.don_vi_id;const ng=NGUON[dv]||{};
   if(_needStock){$("#list-dat").innerHTML=`<div class="meinfo" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca;font-weight:600;line-height:1.5">🔒 <b>Chưa thể đặt đơn mới — chưa báo tồn cuối tháng.</b><br>Hãy vào tab <b>Báo cáo → 📋 Kiểm tồn</b> đếm hàng cuối tháng, rồi mới đặt đơn.</div><button class="addbtn" id="dat-gokk" style="border-color:var(--blue);background:#eff6ff;color:var(--blue)">📋 Đi kiểm tồn</button>`;const g2=$("#dat-gokk");if(g2)g2.onclick=()=>{switchTab('bc');setTimeout(()=>{try{renderKiemKe();}catch(e){}},400);};const sd2=$("#save-dat");if(sd2){sd2.disabled=true;sd2.textContent='🔒 Báo tồn cuối tháng trước';}return;}
   if(_pending.n>0){$("#list-dat").innerHTML=`<div class="meinfo" style="background:#fef2f2;color:#b91c1c;border-color:#fecaca;font-weight:600;line-height:1.5">🔒 <b>Chưa thể đặt đơn mới.</b><br>Bạn còn <b>${_pending.n}</b> phiếu hàng chưa xác nhận nhận${_pending.maxDays>0?` (cũ nhất ${_pending.maxDays} ngày)`:''}. Hãy vào tab <b>Nhận hàng</b> xác nhận đã nhận các đơn cũ, rồi mới đặt đơn mới.</div><button class="addbtn" id="dat-gonhan" style="border-color:var(--green);background:#f0fdf4;color:var(--green)">✅ Đi tới Nhận hàng</button>`;const g=$("#dat-gonhan");if(g)g.onclick=()=>switchTab('nhan');const sd=$("#save-dat");if(sd){sd.disabled=true;sd.textContent='🔒 Nhận đơn cũ trước';}return;}
   const dho=SHIP.filter(t=>ng[t.ma]==='dat_ho'),ngoai=SHIP.filter(t=>ng[t.ma]==='ngoai'),kho=SHIP.filter(t=>ng[t.ma]!=='ngoai'&&ng[t.ma]!=='dat_ho');
-  let html=`<button class="addbtn" id="dat-setting" style="border-color:var(--purple);background:#f5f3ff;color:var(--purple)">⚙️ Cài đặt nguồn hàng (Kho / Đặt hộ / Mua ngoài)</button>`;
+  let html='';
   html+=`<div style="margin-bottom:10px"><label style="font-size:12px;color:var(--mut);font-weight:600;display:block;margin-bottom:4px">📝 Ghi chú / yêu cầu lẻ (gửi kho)</label><input id="dat-note" class="search" placeholder="VD: giao gấp, xin thêm món ngoài danh sách…" style="margin:0"></div>`;
   html+=`<div class="grp">📦 Đặt từ Kho (${kho.length})</div>`+kho.map(it=>rowHTML(it,'d')).join("");
-  html+=`<div class="grp">🏭 Nhờ xưởng đặt hộ (${dho.length})</div>`+(dho.length?dho.map(it=>rowHTML(it,'d')).join(""):'<div class="meinfo">Chưa món nào. Bấm "Cài đặt nguồn hàng" để nhờ xưởng đặt hộ.</div>');
-  html+=`<div class="grp">🛒 Hàng mua ngoài — tự mua (${ngoai.length})</div>`+(ngoai.length?ngoai.map(it=>rowHTML(it,'d')).join(""):'<div class="meinfo">Chưa món nào. Bấm "Cài đặt nguồn hàng" để đánh dấu món chi nhánh tự mua.</div>');
+  html+=`<div class="grp">🏭 Nhờ xưởng đặt hộ (${dho.length})</div>`+(dho.length?dho.map(it=>rowHTML(it,'d')).join(""):'<div class="meinfo">Chưa món nào. (Quản lý tổng cài đặt nguồn hàng cho chi nhánh.)</div>');
+  html+=`<div class="grp">🛒 Hàng mua ngoài — tự mua (${ngoai.length})</div>`+(ngoai.length?ngoai.map(it=>rowHTML(it,'d')).join(""):'<div class="meinfo">Chưa món nào. (Quản lý tổng cài đặt nguồn hàng cho chi nhánh.)</div>');
   $("#list-dat").innerHTML=html;wireRows($("#list-dat"),'d');
-  $("#dat-setting").onclick=()=>openNguon(dv,renderDat);upd();}
+  upd();}
 const NG_LBL={kho:'📦 Từ kho',dat_ho:'🏭 Nhờ xưởng đặt hộ',ngoai:'🛒 Mua ngoài'},NG_COL={kho:'var(--green)',dat_ho:'var(--blue)',ngoai:'var(--purple)'};
 const ngState=(dv,ma)=>{const v=(NGUON[dv]||{})[ma];return v==='ngoai'?'ngoai':v==='dat_ho'?'dat_ho':'kho';};
 async function ngSet(dv,ma,next){if(next==='kho'){await sb.from('nguon_chi_nhanh').delete().eq('don_vi_id',dv).eq('tp_ma',ma);if(NGUON[dv])delete NGUON[dv][ma];}else{await sb.from('nguon_chi_nhanh').upsert({don_vi_id:dv,tp_ma:ma,nguon:next},{onConflict:'don_vi_id,tp_ma'});(NGUON[dv]=NGUON[dv]||{})[ma]=next;}}
@@ -290,7 +291,7 @@ $("#save-nhap").onclick=saveNhap;$("#save-xuat").onclick=saveXuat;$("#save-dat")
 
 /* ===== Kho: xem phiếu yêu cầu (trên màn Xuất) ===== */
 async function loadReq(){const el=$("#xuat-req");const ng=$("#ngay").value;
-  const {data,error}=await sb.from('yeu_cau').select('id,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(id,tp_ma,sl_yeu_cau,nguon,dat_ho_done)').eq('ngay',ng).order('created_at',{ascending:false});
+  const {data,error}=await sb.from('yeu_cau').select('id,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(*)').eq('ngay',ng).order('created_at',{ascending:false});
   if(error){el.innerHTML='';return;}
   if(!data.length){el.innerHTML=`<div class="meinfo">📅 Ngày ${ng}: chưa có phiếu yêu cầu. (Đổi ô Ngày ở trên để xem ngày khác)</div>`;return;}
   const moi=data.filter(p=>p.trang_thai==='moi').length;
