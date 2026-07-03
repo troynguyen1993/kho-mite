@@ -159,7 +159,7 @@ $("#logout").onclick=()=>{localStorage.removeItem('kho_session');location.reload
 function applyRole(){const allowed=ROLE_TABS[SESSION.vai_tro]||['bc'];
   document.querySelectorAll('nav button').forEach(b=>b.style.display=allowed.includes(b.dataset.v)?'':'none');
   $("#tab-tk").style.display=SESSION.vai_tro==='tong'?'':'none';
-  $("#tab-ngcn").style.display=SESSION.vai_tro==='tong'?'':'none';
+  $("#tab-ngcn").style.display=(SESSION.vai_tro==='tong'||SESSION.vai_tro==='ke_toan')?'':'none';
   $("#hsub").textContent=(SESSION.ten_hien_thi||SESSION.ten_dn)+' · '+(ROLE_NAME[SESSION.vai_tro]||'')+(SESSION.don_vi_id?(' ('+SESSION.don_vi_id+')'):'');
   switchTab(allowed[0]);}
 function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();loadCatalog().then(()=>{try{checkAlerts();}catch(e){}});}
@@ -250,14 +250,18 @@ function renderDat(){const dv=SESSION.don_vi_id;const ng=NGUON[dv]||{};
   $("#list-dat").innerHTML=html;wireRows($("#list-dat"),'d');
   upd();}
 const NG_LBL={kho:'📦 Từ kho',dat_ho:'🏭 Nhờ xưởng đặt hộ',ngoai:'🛒 Mua ngoài'},NG_COL={kho:'var(--green)',dat_ho:'var(--blue)',ngoai:'var(--purple)'};
+const NG_OPTS=[['kho','📦 Kho'],['dat_ho','🏭 Đặt hộ'],['ngoai','🛒 Ngoài']];
 const ngState=(dv,ma)=>{const v=(NGUON[dv]||{})[ma];return v==='ngoai'?'ngoai':v==='dat_ho'?'dat_ho':'kho';};
 async function ngSet(dv,ma,next){if(next==='kho'){await sb.from('nguon_chi_nhanh').delete().eq('don_vi_id',dv).eq('tp_ma',ma);if(NGUON[dv])delete NGUON[dv][ma];}else{await sb.from('nguon_chi_nhanh').upsert({don_vi_id:dv,tp_ma:ma,nguon:next},{onConflict:'don_vi_id,tp_ma'});(NGUON[dv]=NGUON[dv]||{})[ma]=next;}}
+function ngOptStyle(on,col){return `flex:1;border:1.5px solid ${on?col:'var(--line)'};background:${on?col:'#fff'};color:${on?'#fff':'var(--mut)'};border-radius:8px;padding:7px 2px;font-size:11.5px;font-weight:700`;}
+function ngBtns(dv,ma){const s=ngState(dv,ma);return `<div class="ngseg" data-ma="${ma}" style="display:flex;gap:5px;margin-top:7px">`+NG_OPTS.map(([v,lbl])=>`<button class="ngopt" data-v="${v}" style="${ngOptStyle(s===v,NG_COL[v])}">${lbl}</button>`).join("")+`</div>`;}
+function ngCard(dv,t){return `<div class="qcard" data-ma="${t.ma}"><div class="qi"><b>${t.ten}</b></div>${ngBtns(dv,t.ma)}</div>`;}
+function wireNg(container,dv){container.querySelectorAll('.ngopt').forEach(b=>b.onclick=async()=>{const seg=b.closest('.ngseg');const ma=seg.dataset.ma;const v=b.dataset.v;
+  try{await ngSet(dv,ma,v);seg.querySelectorAll('.ngopt').forEach(x=>x.setAttribute('style',ngOptStyle(x.dataset.v===v,NG_COL[x.dataset.v])));}catch(e){toast('Lỗi: '+(e.message||e),true);}});}
 function openNguon(dv,back){
-  let html=`<button class="addbtn" id="ng-back">← Xong, quay lại</button><div class="meinfo">Bấm để đổi nguồn từng món cho <b>${dv}</b> (luân phiên): 📦 Từ kho → 🏭 Nhờ xưởng đặt hộ → 🛒 Mua ngoài. <br>"Đặt hộ" = xưởng đặt giúp, không trừ tồn xưởng. "Mua ngoài" = chi nhánh tự mua.</div>`;
-  html+=TP.map(t=>{const s=ngState(dv,t.ma);return `<div class="qcard" data-ma="${t.ma}"><div class="qhead"><div class="qi"><b>${t.ten}</b></div><button class="linkbtn tgl" style="color:${NG_COL[s]}">${NG_LBL[s]}</button></div></div>`;}).join("");
-  $("#list-dat").innerHTML=html;$("#ng-back").onclick=back;
-  $("#list-dat").querySelectorAll('.tgl').forEach(b=>b.onclick=async()=>{const ma=b.closest('.qcard').dataset.ma;const cur=ngState(dv,ma);const next=cur==='kho'?'dat_ho':cur==='dat_ho'?'ngoai':'kho';
-    try{await ngSet(dv,ma,next);b.textContent=NG_LBL[next];b.style.color=NG_COL[next];}catch(e){toast('Lỗi: '+(e.message||e),true);}});}
+  let html=`<button class="addbtn" id="ng-back">← Xong, quay lại</button><div class="meinfo">Bấm thẳng nút muốn cho từng món của <b>${dv}</b>. "🏭 Đặt hộ" = xưởng đặt giúp (không trừ tồn xưởng). "🛒 Ngoài" = chi nhánh tự mua.</div>`;
+  html+=TP.map(t=>ngCard(dv,t)).join("");
+  $("#list-dat").innerHTML=html;$("#ng-back").onclick=back;wireNg($("#list-dat"),dv);}
 function mark(r,inp,cls){const on=(+inp.value)>0;r.classList.toggle("filled",on);r.classList.toggle("x",(cls==="x"||cls==="d")&&on);}
 function filt(elId,val){const q=(val||"").toLowerCase().trim();document.querySelectorAll(elId+" .row").forEach(r=>{const t=r.querySelector("b").textContent.toLowerCase()+r.dataset.ma.toLowerCase();r.style.display=t.includes(q)?"":"none";});document.querySelectorAll(elId+" .grp").forEach(g=>g.style.display=q?"none":"");}
 $("#s-nhap").oninput=e=>filt("#list-nhap",e.target.value);$("#s-xuat").oninput=e=>filt("#list-xuat",e.target.value);$("#s-dat").oninput=e=>filt("#list-dat",e.target.value);
@@ -583,11 +587,9 @@ let qsub='nvl';
 document.querySelectorAll('.qltabs button').forEach(b=>b.onclick=()=>{qsub=b.dataset.q;document.querySelectorAll('.qltabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderQL();});
 function newMa(pre){return pre+'-'+Date.now().toString().slice(-6);}
 function renderQL(){const b=$("#ql-body");if(qsub==='nvl')return renderItems(b,'nvl');if(qsub==='tp')return renderItems(b,'tp');if(qsub==='ct')return renderCT(b);if(qsub==='tk')return renderTK(b);if(qsub==='ngcn')return renderNguonAdmin(b);}
-function renderNguonAdmin(b){b.innerHTML=`<select class="ct-pick" id="ngdv"><option value="">— Chọn chi nhánh —</option>${DV.map(d=>`<option value="${d.id}">${d.id} — ${d.ten}</option>`).join("")}</select><div id="ngbody"><div class="meinfo">Chọn chi nhánh, bấm từng món để đổi nguồn: 📦 Từ kho → 🏭 Nhờ xưởng đặt hộ → 🛒 Mua ngoài.</div></div>`;
+function renderNguonAdmin(b){b.innerHTML=`<select class="ct-pick" id="ngdv"><option value="">— Chọn chi nhánh —</option>${DV.map(d=>`<option value="${d.id}">${d.id} — ${d.ten}</option>`).join("")}</select><div id="ngbody"><div class="meinfo">Chọn chi nhánh, rồi bấm thẳng nút nguồn cho từng món: 📦 Kho / 🏭 Đặt hộ / 🛒 Ngoài.</div></div>`;
   $("#ngdv").onchange=e=>{const dv=e.target.value;if(!dv){$("#ngbody").innerHTML='';return;}
-    $("#ngbody").innerHTML=TP.map(t=>{const s=ngState(dv,t.ma);return `<div class="qcard" data-ma="${t.ma}"><div class="qhead"><div class="qi"><b>${t.ten}</b></div><button class="linkbtn tgl" style="color:${NG_COL[s]}">${NG_LBL[s]}</button></div></div>`;}).join("");
-    $("#ngbody").querySelectorAll('.tgl').forEach(btn=>btn.onclick=async()=>{const ma=btn.closest('.qcard').dataset.ma;const cur=ngState(dv,ma);const next=cur==='kho'?'dat_ho':cur==='dat_ho'?'ngoai':'kho';
-      try{await ngSet(dv,ma,next);btn.textContent=NG_LBL[next];btn.style.color=NG_COL[next];}catch(e){toast('Lỗi: '+(e.message||e),true);}});};}
+    $("#ngbody").innerHTML=TP.map(t=>ngCard(dv,t)).join("");wireNg($("#ngbody"),dv);};}
 function badge(l){if(l==='BTP')return '<span class="badge btp">Bán TP</span>';if(l==='TP_THANG')return '<span class="badge thang">Mua bán thẳng</span>';if(l==='TP_NAU')return '<span class="badge nau">Nấu</span>';return '';}
 function hasCT(ma){return RECIPES.some(r=>r.tp_ma===ma);}
 function noCT(i,kind){const needs=(kind==='tp'&&i.loai!=='TP_THANG')||(kind==='nvl'&&i.loai==='BTP');return (needs&&!hasCT(i.ma))?' <span class="badge warn">⚠️ chưa có CT</span>':'';}
