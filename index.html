@@ -197,17 +197,24 @@ async function checkAlerts(){const bar=$("#alertbar");if(!bar||!SESSION)return;
   if(SESSION.vai_tro!=='chi_nhanh'){if(SESSION.vai_tro==='tong'||SESSION.vai_tro==='ke_toan')await alertPendingChot(bar);else bar.style.display='none';return;}
   _needStock=false;
   try{const dv=SESSION.don_vi_id;
-    const [recvR,kkR]=await Promise.all([sb.from('xuat').select('ngay').eq('don_vi_id',dv).eq('trang_thai','cho_nhan'),sb.from('kiem_ke').select('ngay').eq('don_vi_id',dv)]);
-    const data=recvR.data||[];const n=data.length;const today=new Date();today.setHours(0,0,0,0);let maxDays=0;
-    data.forEach(p=>{const d=new Date(p.ngay+'T00:00:00');const days=Math.round((today-d)/86400000);if(days>maxDays)maxDays=days;});
-    _pending={n,maxDays};_needStock=_stockOverdue(kkR.data||[]);
+    const [recvR,kkR]=await Promise.all([sb.from('xuat').select('ngay,dat_ho').eq('don_vi_id',dv).eq('trang_thai','cho_nhan'),sb.from('kiem_ke').select('ngay').eq('don_vi_id',dv)]);
+    const rows=recvR.data||[];const today=new Date();today.setHours(0,0,0,0);
+    const ageOf=p=>{const d=new Date(p.ngay+'T00:00:00');return Math.round((today-d)/86400000);};
+    const block=rows.filter(p=>!p.dat_ho),datho=rows.filter(p=>p.dat_ho);
+    let maxDays=0;block.forEach(p=>{const a=ageOf(p);if(a>maxDays)maxDays=a;});
+    let dhMax=0;datho.forEach(p=>{const a=ageOf(p);if(a>dhMax)dhMax=a;});
+    _pending={n:block.length,maxDays};_needStock=_stockOverdue(kkR.data||[]);
     if(_needStock){
       bar.innerHTML=`<span style="flex:1;cursor:pointer">📋 CHƯA BÁO TỒN cuối tháng! Vào <b>Kiểm tồn</b> (Báo cáo) đếm hàng — chưa báo thì chưa đặt đơn mới được.</span>`;
       bar.style.cssText=`display:flex;align-items:center;gap:10px;margin:0 12px 6px;padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:600;line-height:1.4;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca`;
       bar.querySelector('span').onclick=()=>{switchTab('bc');setTimeout(()=>{try{renderKiemKe();}catch(e){}},400);};
-    }else if(n>0){const overdue=maxDays>2,ageTxt=maxDays>0?` (cũ nhất ${maxDays} ngày)`:'';
-      bar.innerHTML=`<span style="flex:1;cursor:pointer">🔒 Bạn còn <b>${n}</b> phiếu hàng CHƯA NHẬN${ageTxt}. Vào <b>Nhận hàng</b> xác nhận đã nhận thì mới đặt đơn mới được.</span>`;
+    }else if(block.length>0){const overdue=maxDays>2,ageTxt=maxDays>0?` (cũ nhất ${maxDays} ngày)`:'';
+      bar.innerHTML=`<span style="flex:1;cursor:pointer">🔒 Bạn còn <b>${block.length}</b> phiếu hàng CHƯA NHẬN${ageTxt}. Vào <b>Nhận hàng</b> xác nhận đã nhận thì mới đặt đơn mới được.</span>`;
       bar.style.cssText=`display:flex;align-items:center;gap:10px;margin:0 12px 6px;padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:600;line-height:1.4;${overdue?'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca':'background:#fffbeb;color:#b45309;border:1px solid #fde68a'}`;
+      bar.querySelector('span').onclick=()=>switchTab('nhan');
+    }else if(datho.length&&dhMax>10){
+      bar.innerHTML=`<span style="flex:1;cursor:pointer">🏭 Có <b>${datho.length}</b> phiếu ĐẶT HỘ chờ hàng về đã quá <b>${dhMax} ngày</b> — kiểm tra & xác nhận ở tab <b>Nhận hàng</b>.</span>`;
+      bar.style.cssText=`display:flex;align-items:center;gap:10px;margin:0 12px 6px;padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:600;line-height:1.4;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe`;
       bar.querySelector('span').onclick=()=>switchTab('nhan');
     }else bar.style.display='none';
     if($("#v-dat")&&$("#v-dat").classList.contains('on'))renderDat();
@@ -310,10 +317,10 @@ async function loadReq(){const el=$("#xuat-req");const ng=$("#ngay").value;
   el.querySelectorAll('.dho-done').forEach(b=>b.onclick=async()=>{const card=b.closest('.hcard');const dv=b.dataset.dv;
     const rows=[...card.querySelectorAll('.ing[data-ctid]')].map(d=>({ctid:d.dataset.ctid,ma:d.dataset.ma,sl:+d.querySelector('.dho-sl').value||0,gia:+d.querySelector('.dho-gia').value||0})).filter(x=>x.sl>0);
     if(!rows.length){toast('Nhập SL trước',true);return;}
-    try{const {data:xh,error}=await sb.from('xuat').insert({ngay:ng,don_vi_id:dv,nguoi:SESSION?.ten_dn,trang_thai:'da_nhan',tu_mua:true}).select().single();if(error)throw error;
-      await sb.from('xuat_ct').insert(rows.map(r=>({xuat_id:xh.id,tp_ma:r.ma,sl_xuat:r.sl,sl_thuc_nhan:r.sl,gia_mua:r.gia||null,ghi_chu:'đặt hộ'})));
+    try{const {data:xh,error}=await sb.from('xuat').insert({ngay:ng,don_vi_id:dv,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true,dat_ho:true}).select().single();if(error)throw error;
+      await sb.from('xuat_ct').insert(rows.map(r=>({xuat_id:xh.id,tp_ma:r.ma,sl_xuat:r.sl,gia_mua:r.gia||null,ghi_chu:'đặt hộ'})));
       for(const r of rows)await sb.from('yeu_cau_ct').update({dat_ho_done:true}).eq('id',r.ctid);
-      toast('✅ Đã đặt hộ — cộng tồn '+dv);loadReq();
+      toast('✅ Đã đặt hộ '+dv+' — chờ hàng về, chi nhánh xác nhận nhận');loadReq();
     }catch(e){toast('Lỗi: '+(e.message||e),true);}});}
 async function loadLech(){const el=$("#xuat-lech");
   const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,xu_ly)').eq('trang_thai','da_nhan').neq('tu_mua',true).order('created_at',{ascending:false}).limit(80);
@@ -331,27 +338,28 @@ async function loadLech(){const el=$("#xuat-lech");
 
 /* ===== Chi nhánh: nhận hàng (duyệt phiếu xuất) ===== */
 async function loadNhan(){const el=$("#v-nhan");el.innerHTML='<div class="loading">Đang tải…</div>';
-  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,trang_thai,tu_mua,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,gia_mua,ghi_chu)').eq('don_vi_id',SESSION.don_vi_id).eq('trang_thai','cho_nhan').order('created_at',{ascending:false});
+  const {data,error}=await sb.from('xuat').select('id,ngay,don_vi_id,trang_thai,tu_mua,dat_ho,xuat_ct(id,tp_ma,sl_xuat,sl_thuc_nhan,gia_mua,ghi_chu)').eq('don_vi_id',SESSION.don_vi_id).eq('trang_thai','cho_nhan').order('created_at',{ascending:false});
   if(error){el.innerHTML='<div class="empty">Lỗi: '+error.message+'</div>';return;}
   if(!data.length){el.innerHTML='<div class="empty">Không có phiếu hàng nào chờ nhận. 🎉</div>';return;}
-  el.innerHTML=data.map(p=>{const tm=!!p.tu_mua;
-    const head=tm?`<span class="tag y">🛒 TỰ MUA — điền SL & giá thực</span>`:`<span class="tag x">HÀNG KHO GỬI</span>`;
+  el.innerHTML=data.map(p=>{const dh=!!p.dat_ho,tm=!!p.tu_mua&&!dh;
+    const head=dh?`<span class="tag" style="background:var(--blue)">🏭 ĐẶT HỘ — hàng về, xác nhận nhận</span>`:tm?`<span class="tag y">🛒 TỰ MUA — điền SL & giá thực</span>`:`<span class="tag x">HÀNG KHO GỬI</span>`;
     const lines=p.xuat_ct.map(l=>{const ten=NAME[l.tp_ma]?.ten||l.tp_ma,dvt=NAME[l.tp_ma]?.dvt||'';
+      if(dh)return `<div class="ing"><div class="nm">${ten}<br><small style="color:var(--mut)">xưởng đặt ${l.sl_xuat} ${dvt}${l.gia_mua?' · '+fmt(l.gia_mua)+'đ':''}</small></div><input type="number" inputmode="decimal" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" title="SL thực nhận" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"></div>`;
       if(tm)return `<div class="ing"><div class="nm">${ten}<br><small style="color:var(--mut)">đã đặt ${l.sl_xuat} ${dvt}</small></div><div style="display:flex;gap:5px;align-items:center"><input type="number" inputmode="decimal" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" placeholder="SL mua" style="width:60px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"><span style="color:var(--mut)">×</span><input type="number" inputmode="decimal" class="rcgia" data-ct="${l.id}" value="${l.gia_mua||''}" placeholder="đ/đv" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px"></div></div>`;
       return `<div class="ing"><div class="nm">${ten}<br><small style="color:var(--mut)">Kho gửi: ${l.sl_xuat}</small></div><input type="number" inputmode="decimal" class="rc" data-ct="${l.id}" value="${l.sl_xuat}" style="width:72px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-weight:700"></div>`;}).join("");
-    const addmore=tm?'':`<button class="addbtn addmore" style="margin-top:8px">+ Thêm món khác</button><div class="extra"></div>`;
-    return `<div class="hcard" data-id="${p.id}" data-tm="${tm?1:0}"><div class="top">${head}<small>📅 ${p.ngay}</small></div><div style="margin-top:8px">${lines}</div>${addmore}<button class="confirm" data-id="${p.id}" style="width:100%;border:none;border-radius:12px;padding:14px;margin-top:6px;background:${tm?'var(--purple)':'var(--green)'};color:#fff;font-weight:700;font-size:15px">✅ Xác nhận ${tm?'đã mua':'đã nhận'}</button></div>`;}).join("");
+    const addmore=(tm||dh)?'':`<button class="addbtn addmore" style="margin-top:8px">+ Thêm món khác</button><div class="extra"></div>`;
+    return `<div class="hcard" data-id="${p.id}" data-tm="${tm?1:0}" data-dh="${dh?1:0}"><div class="top">${head}<small>📅 ${p.ngay}</small></div><div style="margin-top:8px">${lines}</div>${addmore}<button class="confirm" data-id="${p.id}" style="width:100%;border:none;border-radius:12px;padding:14px;margin-top:6px;background:${dh?'var(--blue)':tm?'var(--purple)':'var(--green)'};color:#fff;font-weight:700;font-size:15px">✅ Xác nhận ${dh?'đã nhận':tm?'đã mua':'đã nhận'}</button></div>`;}).join("");
   el.querySelectorAll('.addmore').forEach(b=>b.onclick=()=>{const ex=b.nextElementSibling;const opts=TP.map(t=>`<option value="${t.ma}">${t.ten}</option>`).join("");
     ex.insertAdjacentHTML('beforeend',`<div class="ing"><select class="exma" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px">${opts}</select><input type="number" class="exsl" placeholder="SL" style="width:64px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px"></div>`);});
   el.querySelectorAll('.confirm').forEach(b=>b.onclick=()=>confirmNhan(b.closest('.hcard'),b.dataset.id));}
 async function confirmNhan(card,id){
   try{
-    const tm=card.dataset.tm==='1';
+    const tm=card.dataset.tm==='1',dh=card.dataset.dh==='1';
     for(const inp of card.querySelectorAll('.rc')){const upd={sl_thuc_nhan:+inp.value||0};if(tm){const g=card.querySelector('.rcgia[data-ct="'+inp.dataset.ct+'"]');if(g)upd.gia_mua=+g.value||0;}await sb.from('xuat_ct').update(upd).eq('id',inp.dataset.ct);}
     const extra=[...card.querySelectorAll('.extra .ing')].map(d=>({xuat_id:id,tp_ma:d.querySelector('.exma').value,sl_xuat:0,sl_thuc_nhan:+d.querySelector('.exsl').value||0,ghi_chu:'thêm khi nhận'})).filter(x=>x.sl_thuc_nhan>0);
     if(extra.length)await sb.from('xuat_ct').insert(extra);
     await sb.from('xuat').update({trang_thai:'da_nhan'}).eq('id',id);
-    toast(tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();checkAlerts();
+    toast(dh?'✅ Đã nhận hàng đặt hộ — đã cộng tồn':tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();checkAlerts();
   }catch(e){toast('Lỗi: '+(e.message||e),true);}}
 
 /* ===== 🍳 SẢN XUẤT ===== */
