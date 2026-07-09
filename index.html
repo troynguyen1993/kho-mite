@@ -595,9 +595,9 @@ let qsub='nvl';
 document.querySelectorAll('.qltabs button').forEach(b=>b.onclick=()=>{qsub=b.dataset.q;document.querySelectorAll('.qltabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderQL();});
 function newMa(pre){return pre+'-'+Date.now().toString().slice(-6);}
 function renderQL(){const b=$("#ql-body");if(qsub==='nvl')return renderItems(b,'nvl');if(qsub==='tp')return renderItems(b,'tp');if(qsub==='ct')return renderCT(b);if(qsub==='tk')return renderTK(b);if(qsub==='ngcn')return renderNguonAdmin(b);}
-function renderNguonAdmin(b){b.innerHTML=`<select class="ct-pick" id="ngdv"><option value="">— Chọn chi nhánh —</option>${DV.map(d=>`<option value="${d.id}">${d.id} — ${d.ten}</option>`).join("")}</select><div id="ngbody"><div class="meinfo">Chọn chi nhánh, rồi bấm thẳng nút nguồn cho từng món: 📦 Kho / 🏭 Đặt hộ / 🛒 Ngoài.</div></div>`;
-  $("#ngdv").onchange=e=>{const dv=e.target.value;if(!dv){$("#ngbody").innerHTML='';return;}
-    $("#ngbody").innerHTML=TP.map(t=>ngCard(dv,t)).join("");wireNg($("#ngbody"),dv);};}
+function renderNguonAdmin(b){b.innerHTML=`<select class="ct-pick" id="ngdv"><option value="">— Chọn chi nhánh —</option>${DV.map(d=>`<option value="${d.id}">${d.id} — ${d.ten}</option>`).join("")}</select><input class="search" id="ng-search" placeholder="🔍 Tìm món..." style="display:none"><div id="ngbody"><div class="meinfo">Chọn chi nhánh, rồi bấm thẳng nút nguồn cho từng món: 📦 Kho / 🏭 Đặt hộ / 🛒 Ngoài.</div></div>`;
+  const draw=(dv,f)=>{f=(f||'').toLowerCase().trim();const list=[...TP].sort((a,b)=>a.ten.localeCompare(b.ten,'vi')).filter(t=>(t.ten+t.ma).toLowerCase().includes(f));$("#ngbody").innerHTML=list.length?list.map(t=>ngCard(dv,t)).join(""):'<div class="empty">Không tìm thấy món.</div>';wireNg($("#ngbody"),dv);};
+  $("#ngdv").onchange=e=>{const dv=e.target.value;const s=$("#ng-search");if(!dv){s.style.display='none';$("#ngbody").innerHTML='';return;}s.style.display='';s.value='';draw(dv,'');s.oninput=ev=>draw(dv,ev.target.value);};}
 function badge(l){if(l==='BTP')return '<span class="badge btp">Bán TP</span>';if(l==='TP_THANG')return '<span class="badge thang">Mua bán thẳng</span>';if(l==='TP_NAU')return '<span class="badge nau">Nấu</span>';return '';}
 function hasCT(ma){return RECIPES.some(r=>r.tp_ma===ma);}
 function noCT(i,kind){const needs=(kind==='tp'&&i.loai!=='TP_THANG')||(kind==='nvl'&&i.loai==='BTP');return (needs&&!hasCT(i.ma))?' <span class="badge warn">⚠️ chưa có CT</span>':'';}
