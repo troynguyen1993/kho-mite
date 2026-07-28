@@ -569,17 +569,17 @@ async function exportDetail(){const from=$("#bc-from").value,to=$("#bc-to").valu
   const [xr,yr,nr]=await Promise.all([xq,yq,isCN?Promise.resolve({data:[]}):nq]);
   const xx=xr.data||[],yy=yr.data||[],nn=(nr&&nr.data)||[];
   let csv=`BAO CAO CHI TIET,${from} -> ${to},${isCN?'Chi nhanh '+myDV:'KHO'}\n`;
-  csv+=`\nCHI TIET HANG XUAT/NHAN THEO NGAY\nNgay,Chi nhanh,Mon,SL kho xuat,SL thuc nhan,Gia tri (gia ban)\n`;
+  csv+=`\nCHI TIET HANG XUAT/NHAN THEO NGAY\nNgay,Chi nhanh,Mon,DVT,SL kho xuat,SL thuc nhan,Gia tri (gia von)\n`;
   let tongGT=0;
-  xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const gx=(l.gia_xuat!=null?Number(l.gia_xuat):giaTP(l.tp_ma));const gt=Number(l.sl_thuc_nhan??l.sl_xuat)*gx;tongGT+=gt;csv+=[p.ngay,p.don_vi_id,'"'+(NAME[l.tp_ma]?.ten||l.tp_ma)+'"',l.sl_xuat,l.sl_thuc_nhan??'',Math.round(gt)].join(',')+'\n';}));
-  csv+=`,,,,Tong gia tri,${Math.round(tongGT)}\n`;
-  csv+=`\nSO SANH SL YEU CAU vs SL NHAN (tong trong ky)\nChi nhanh,Mon,SL yeu cau,SL nhan,Lech\n`;
+  xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const gx=(l.gia_xuat!=null?Number(l.gia_xuat):giaTP(l.tp_ma));const gt=Number(l.sl_thuc_nhan??l.sl_xuat)*gx;tongGT+=gt;csv+=[p.ngay,p.don_vi_id,'"'+(NAME[l.tp_ma]?.ten||l.tp_ma)+'"',(NAME[l.tp_ma]?.dvt||''),l.sl_xuat,l.sl_thuc_nhan??'',Math.round(gt)].join(',')+'\n';}));
+  csv+=`,,,,,Tong gia tri,${Math.round(tongGT)}\n`;
+  csv+=`\nSO SANH SL YEU CAU vs SL NHAN (tong trong ky)\nChi nhanh,Mon,DVT,SL yeu cau,SL nhan,Lech\n`;
   const req={},rcv={};
   yy.forEach(p=>(p.yeu_cau_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;req[k]=(req[k]||0)+Number(l.sl_yeu_cau);}));
   xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;rcv[k]=(rcv[k]||0)+Number(l.sl_thuc_nhan||0);}));
-  [...new Set([...Object.keys(req),...Object.keys(rcv)])].forEach(k=>{const[dv,ma]=k.split('|');const q=req[k]||0,r=rcv[k]||0;csv+=[dv,'"'+(NAME[ma]?.ten||ma)+'"',q,r,r-q].join(',')+'\n';});
-  if(!isCN){csv+=`\nCHI TIET NHAP NVL THEO NGAY\nNgay,NVL,SL nhap,Don gia,Gia tri\n`;
-    nn.forEach(p=>(p.nhap_ct||[]).forEach(l=>{csv+=[p.ngay,'"'+(NAME[l.nvl_ma]?.ten||l.nvl_ma)+'"',l.sl,l.don_gia||'',Math.round(Number(l.sl)*Number(l.don_gia||0))].join(',')+'\n';}));}
+  [...new Set([...Object.keys(req),...Object.keys(rcv)])].forEach(k=>{const[dv,ma]=k.split('|');const q=req[k]||0,r=rcv[k]||0;csv+=[dv,'"'+(NAME[ma]?.ten||ma)+'"',(NAME[ma]?.dvt||''),q,r,r-q].join(',')+'\n';});
+  if(!isCN){csv+=`\nCHI TIET NHAP NVL THEO NGAY\nNgay,NVL,DVT,SL nhap,Don gia,Gia tri\n`;
+    nn.forEach(p=>(p.nhap_ct||[]).forEach(l=>{csv+=[p.ngay,'"'+(NAME[l.nvl_ma]?.ten||l.nvl_ma)+'"',(NAME[l.nvl_ma]?.dvt||''),l.sl,l.don_gia||'',Math.round(Number(l.sl)*Number(l.don_gia||0))].join(',')+'\n';}));}
   downloadCSV('bao-cao-chi-tiet-'+from+'_'+to+'.csv',csv);toast('✅ Đã tải Excel chi tiết');}
 function renderKiemKe(){const el=$("#v-bc");const isCN=SESSION.vai_tro==='chi_nhanh';
   const groups=isCN?[{t:'🍱 Thành phẩm',ids:TP.map(x=>x.ma)}]:[
