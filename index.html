@@ -83,6 +83,10 @@ nav button .ic{font-size:19px;line-height:1;}nav button.on{color:var(--blue);}
 .loginbox input{width:100%;border:1px solid var(--line);border-radius:11px;padding:13px;font-size:15px;margin-bottom:10px;}
 .loginbox button{width:100%;border:none;background:var(--blue);color:#fff;border-radius:11px;padding:14px;font-size:16px;font-weight:700;}
 .loginbox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;font-weight:600;}
+.month-reminder{position:fixed;inset:0;z-index:130;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:24px;}
+.month-reminder-card{width:100%;max-width:360px;background:#fff;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35);}
+.month-reminder-icon{font-size:46px;line-height:1;margin-bottom:10px;}.month-reminder-card h2{font-size:20px;margin:0 0 8px;color:var(--ink);}
+.month-reminder-card p{font-size:15px;line-height:1.55;color:#475569;margin:0 0 20px;}.month-reminder-card button{width:100%;border:none;border-radius:12px;padding:13px;background:var(--blue);color:#fff;font-size:16px;font-weight:800;}
 .hidden{display:none!important;}
 </style>
 </head>
@@ -130,6 +134,14 @@ nav button .ic{font-size:19px;line-height:1;}nav button.on{color:var(--blue);}
   </nav>
 </div>
 <div class="toast" id="toast"></div>
+<div class="month-reminder hidden" id="month-reminder" role="dialog" aria-modal="true" aria-labelledby="month-reminder-title">
+  <div class="month-reminder-card">
+    <div class="month-reminder-icon">📋</div>
+    <h2 id="month-reminder-title">Nhắc kiểm tồn cuối tháng</h2>
+    <p>Chuẩn bị kiểm tồn cuối tháng.</p>
+    <button id="month-reminder-ok" type="button">OK</button>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -163,7 +175,18 @@ function applyRole(){const allowed=ROLE_TABS[SESSION.vai_tro]||['bc'];
   $("#tab-ngcn").style.display=(SESSION.vai_tro==='tong'||SESSION.vai_tro==='ke_toan')?'':'none';
   $("#hsub").textContent=(SESSION.ten_hien_thi||SESSION.ten_dn)+' · '+(ROLE_NAME[SESSION.vai_tro]||'')+(SESSION.don_vi_id?(' ('+SESSION.don_vi_id+')'):'');
   switchTab(allowed[0]);}
-function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();loadCatalog().then(()=>{try{checkAlerts();}catch(e){}});}
+let monthReminderTimer=null;
+function localDayKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function monthReminderKey(d){return 'kho_month_reminder_'+SESSION.ten_dn+'_'+localDayKey(d);}
+function checkMonthReminder(){const box=$("#month-reminder");if(!box||!SESSION)return;
+  const now=new Date(),allowed=SESSION.vai_tro==='kho'||SESSION.vai_tro==='chi_nhanh';
+  if(!allowed||now.getDate()<25){box.classList.add('hidden');return;}
+  let done=false;try{done=localStorage.getItem(monthReminderKey(now))==='ok';}catch(e){}
+  box.classList.toggle('hidden',done);if(!done)setTimeout(()=>$("#month-reminder-ok")?.focus(),0);}
+function scheduleMonthReminder(){clearTimeout(monthReminderTimer);const next=new Date();next.setHours(24,0,2,0);
+  monthReminderTimer=setTimeout(()=>{checkMonthReminder();scheduleMonthReminder();},Math.max(1000,next-Date.now()));}
+$("#month-reminder-ok").onclick=()=>{try{localStorage.setItem(monthReminderKey(new Date()),'ok');}catch(e){}$("#month-reminder").classList.add('hidden');};
+function startApp(){$("#login").classList.add('hidden');$("#appwrap").classList.remove('hidden');applyRole();checkMonthReminder();scheduleMonthReminder();loadCatalog().then(()=>{try{checkAlerts();}catch(e){}});}
 
 /* ===== DANH MỤC ===== */
 async function loadCatalog(){try{
