@@ -108,7 +108,7 @@ nav button .ic{font-size:19px;line-height:1;}nav button.on{color:var(--blue);}
 
   <section class="view on" id="v-nhap"><input class="search" id="s-nhap" placeholder="🔍 Tìm nguyên vật liệu..."><div id="list-nhap"><div class="loading">Đang tải…</div></div></section>
   <section class="view" id="v-sx"></section>
-  <section class="view" id="v-xuat"><div id="xuat-req"></div><div id="xuat-lech"></div><div class="branchbar" id="branchbar"></div><input class="search" id="s-xuat" placeholder="🔍 Tìm thành phẩm..."><div id="list-xuat"></div></section>
+  <section class="view" id="v-xuat"><div id="xuat-req"></div><div id="xuat-lech"></div><div id="xuat-link"></div><div class="branchbar" id="branchbar"></div><input class="search" id="s-xuat" placeholder="🔍 Tìm thành phẩm..."><div id="list-xuat"></div></section>
   <section class="view" id="v-dat"><input class="search" id="s-dat" placeholder="🔍 Tìm thành phẩm..."><div id="list-dat"></div></section>
   <section class="view" id="v-nhan"></section>
   <section class="view" id="v-bc"></section>
@@ -150,7 +150,7 @@ const SUPA_URL="https://hwzzdvtuiddrelwdawzo.supabase.co";
 const SUPA_KEY="sb_publishable_5lAQd_PamQYiXWlDKR5JUg_frHNHoCR";
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 const $=s=>document.querySelector(s);
-let branch=null,NVL=[],TP=[],RECIPES=[],DV=[],NAME={},SESSION=null,NGUON={},_TON={},_KKL={},SHIP=[];
+let branch=null,NVL=[],TP=[],RECIPES=[],DV=[],NAME={},SESSION=null,NGUON={},_TON={},_KKL={},SHIP=[],_xuatYeuCau=null;
 $("#ngay").value=new Date().toISOString().slice(0,10);
 function toast(m,err){const t=$("#toast");t.textContent=m;t.className="toast show"+(err?" err":"");setTimeout(()=>t.className="toast",2200);}
 const fmt=n=>(Math.round((+n||0)*100)/100).toLocaleString('vi-VN');
@@ -322,9 +322,11 @@ async function recalcNvlPrice(maList){const set=new Set(maList);if(!set.size)ret
     for(const ma of Object.keys(agg)){if(agg[ma].s>0){const avg=Math.round((agg[ma].v/agg[ma].s)*100)/100;await sb.from('nvl').update({don_gia:avg}).eq('ma',ma);const n=NVL.find(x=>x.ma===ma);if(n)n.don_gia=avg;}}
   }catch(e){}}
 async function saveXuat(){const items=collect("#list-xuat");if(!items.length||!branch)return;$("#save-xuat").disabled=true;$("#save-xuat").textContent="Đang lưu…";
-  try{const {data:h,error}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:branch,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan'}).select().single();if(error)throw error;
+  const linked=(_xuatYeuCau&&_xuatYeuCau.don_vi_id===branch)?_xuatYeuCau:null;
+  try{const {data:h,error}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:branch,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',yeu_cau_id:linked?.id||null}).select().single();if(error)throw error;
     _cost={};await sb.from('xuat_ct').insert(items.map(i=>({xuat_id:h.id,tp_ma:i.ma,sl_xuat:i.sl,gia_xuat:Math.round(unitCost(i.ma)*100)/100||null})));
-    clearInputs("#list-xuat");toast("✅ Đã lưu phiếu xuất → "+branch);}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
+    if(linked)await sb.from('yeu_cau').update({trang_thai:'da_xu_ly'}).eq('id',linked.id);
+    clearInputs("#list-xuat");_xuatYeuCau=null;renderXuatLink();toast("✅ Đã lưu phiếu xuất"+(linked?' cho '+linked.ma_phieu:'')+" → "+branch);loadReq();}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
 async function saveDat(){if(_needStock){toast('🔒 Chưa báo tồn cuối tháng — vào Kiểm tồn (Báo cáo) trước',true);switchTab('bc');return;}if(_pending.n>0){toast('🔒 Còn phiếu chưa nhận — xác nhận ở tab Nhận hàng trước',true);switchTab('nhan');return;}const items=collect("#list-dat");if(!items.length)return;$("#save-dat").disabled=true;$("#save-dat").textContent="Đang gửi…";
   const note=$("#dat-note")?.value?.trim()||null;
   const ng=NGUON[SESSION.don_vi_id]||{};
@@ -332,30 +334,40 @@ async function saveDat(){if(_needStock){toast('🔒 Chưa báo tồn cuối thá
     await sb.from('yeu_cau_ct').insert(items.map(i=>({yeu_cau_id:h.id,tp_ma:i.ma,sl_yeu_cau:i.sl,nguon:(ng[i.ma]==='ngoai'?'ngoai':ng[i.ma]==='dat_ho'?'dat_ho':'kho')})));
     // Món "mua ngoài" → chi nhánh tự mua (tạo phiếu chờ nhận). Món "đặt hộ" → chờ xưởng xác nhận.
     const ngoai=items.filter(i=>ng[i.ma]==='ngoai'),dho=items.filter(i=>ng[i.ma]==='dat_ho');let nMsg='';
-    if(ngoai.length){const {data:xh,error:xe}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true}).select().single();
+    if(ngoai.length){const {data:xh,error:xe}=await sb.from('xuat').insert({ngay:$("#ngay").value,don_vi_id:SESSION.don_vi_id,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true,yeu_cau_id:h.id}).select().single();
       if(!xe&&xh){await sb.from('xuat_ct').insert(ngoai.map(i=>({xuat_id:xh.id,tp_ma:i.ma,sl_xuat:i.sl,ghi_chu:'tự mua ngoài'})));nMsg=' · 🛒 '+ngoai.length+' món mua ngoài → vào Nhận hàng điền SL & giá';}}
     if(dho.length)nMsg+=' · 🏭 '+dho.length+' món nhờ xưởng đặt hộ (chờ xưởng xác nhận)';
-    clearInputs("#list-dat");toast("✅ Đã gửi phiếu yêu cầu"+nMsg);renderDat();checkAlerts();}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
+    clearInputs("#list-dat");toast("✅ Đã gửi phiếu "+(h.ma_phieu||'yêu cầu')+nMsg);renderDat();checkAlerts();}catch(e){toast("Lỗi: "+(e.message||e),true);}finally{upd();}}
 $("#save-nhap").onclick=saveNhap;$("#save-xuat").onclick=saveXuat;$("#save-dat").onclick=saveDat;
 
 /* ===== Kho: xem phiếu yêu cầu (trên màn Xuất) ===== */
+function renderXuatLink(){const el=$("#xuat-link");if(!el)return;if(!_xuatYeuCau){el.innerHTML='';return;}
+  el.innerHTML=`<div class="meinfo" style="border-color:var(--purple);background:#f5f3ff;color:#5b21b6"><b>Đang chuẩn bị xuất cho phiếu ${_xuatYeuCau.ma_phieu}</b><br>Chi nhánh ${_xuatYeuCau.don_vi_id} · ngày yêu cầu ${_xuatYeuCau.ngay}<button id="xuat-unlink" class="linkbtn" style="float:right;color:var(--red)">Bỏ liên kết</button></div>`;
+  $("#xuat-unlink").onclick=()=>{_xuatYeuCau=null;renderXuatLink();upd();};}
+function prepareXuatFromYeuCau(p){const kholines=(p.yeu_cau_ct||[]).filter(i=>i.nguon==='kho');if(!kholines.length){toast('Phiếu này không có hàng từ kho',true);return;}
+  _xuatYeuCau={id:p.id,ma_phieu:p.ma_phieu||('YC-'+p.id),don_vi_id:p.don_vi_id,ngay:p.ngay};branch=p.don_vi_id;
+  $("#branchbar").querySelectorAll('button').forEach(b=>b.classList.toggle('sel',b.dataset.c===branch));clearInputs("#list-xuat");
+  kholines.forEach(i=>{const row=[...document.querySelectorAll('#list-xuat .row')].find(r=>r.dataset.ma===i.tp_ma);if(!row)return;const inp=row.querySelector('input.q');inp.value=i.sl_yeu_cau;mark(row,inp,'x');});
+  renderXuatLink();upd();$("#xuat-link").scrollIntoView({behavior:'smooth',block:'start'});toast('✅ Đã nạp phiếu '+_xuatYeuCau.ma_phieu+' để xuất');}
 async function loadReq(){const el=$("#xuat-req");const ng=$("#ngay").value;
-  const {data,error}=await sb.from('yeu_cau').select('id,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(*)').eq('ngay',ng).order('created_at',{ascending:false});
+  const {data,error}=await sb.from('yeu_cau').select('id,ma_phieu,ngay,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(*)').eq('ngay',ng).order('created_at',{ascending:false});
   if(error){el.innerHTML='';return;}
   if(!data.length){el.innerHTML=`<div class="meinfo">📅 Ngày ${ng}: chưa có phiếu yêu cầu. (Đổi ô Ngày ở trên để xem ngày khác)</div>`;return;}
   const moi=data.filter(p=>p.trang_thai==='moi').length;
   el.innerHTML=`<div class="sect">📋 Phiếu yêu cầu ngày ${ng} (${moi} mới · ${data.length} tổng)</div>`+data.map(p=>{
     const done=p.trang_thai!=='moi';const kholines=(p.yeu_cau_ct||[]).filter(i=>i.nguon==='kho');const dholines=(p.yeu_cau_ct||[]).filter(i=>i.nguon==='dat_ho'&&!i.dat_ho_done);
-    let c=`<div class="hcard" style="${done?'opacity:.6':''}"><div class="top"><span class="tag y" style="${done?'background:#94a3b8':''}">${p.don_vi_id} · ${done?'✓ đã xử lý':'🆕 MỚI'}</span><button class="linkbtn tog" data-id="${p.id}" data-st="${p.trang_thai}">${done?'↩ mở lại':'Đánh dấu xử lý ✓'}</button></div><div class="meta">📅 ${p.ngay}${p.ghi_chu?' · 📝 '+p.ghi_chu:''}</div><ul>${kholines.map(i=>`<li>${NAME[i.tp_ma]?.ten||i.tp_ma} — <b>${i.sl_yeu_cau}</b></li>`).join("")||'<li><i>(không có hàng từ kho)</i></li>'}</ul>`;
+    let c=`<div class="hcard" style="${done?'opacity:.6':''}"><div class="top"><span class="tag y" style="${done?'background:#94a3b8':''}">${p.ma_phieu||('YC-'+p.id)} · ${done?'✓ đã xử lý':'🆕 MỚI'}</span><button class="linkbtn tog" data-id="${p.id}" data-st="${p.trang_thai}">${done?'↩ mở lại':'Đánh dấu xử lý ✓'}</button></div><div class="meta">${p.don_vi_id} · 📅 ${p.ngay}${p.ghi_chu?' · 📝 '+p.ghi_chu:''}</div><ul>${kholines.map(i=>`<li>${NAME[i.tp_ma]?.ten||i.tp_ma} — <b>${i.sl_yeu_cau}</b></li>`).join("")||'<li><i>(không có hàng từ kho)</i></li>'}</ul>`;
+    if(kholines.length&&!done)c+=`<button class="make-xuat" data-id="${p.id}" style="width:100%;border:none;border-radius:9px;padding:10px;margin-top:4px;background:var(--green);color:#fff;font-weight:700;font-size:12.5px">📤 Chuẩn bị xuất đơn ${p.ma_phieu||('YC-'+p.id)}</button>`;
     if(dholines.length){c+=`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:2px"><div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:4px">🏭 Nhờ đặt hộ (${dholines.length}) — nhập SL & giá rồi bấm nút:</div>`;
       c+=dholines.map(i=>`<div class="ing" data-ctid="${i.id}" data-ma="${i.tp_ma}"><div class="nm">${NAME[i.tp_ma]?.ten||i.tp_ma}<br><small style="color:var(--mut)">CN xin ${i.sl_yeu_cau} ${NAME[i.tp_ma]?.dvt||''}</small></div><div style="display:flex;gap:4px;align-items:center"><input type="number" inputmode="decimal" class="dho-sl" value="${i.sl_yeu_cau}" title="SL đặt" style="width:52px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:6px;font-weight:700"><span style="color:var(--mut)">×</span><input type="number" inputmode="decimal" class="dho-gia" placeholder="đ/đv" title="Đơn giá" style="width:64px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:6px"></div></div>`).join("");
-      c+=`<button class="dho-done" data-dv="${p.don_vi_id}" style="width:100%;border:none;border-radius:9px;padding:10px;margin-top:4px;background:var(--blue);color:#fff;font-weight:700;font-size:12.5px">✅ Đã đặt hộ (cộng tồn ${p.don_vi_id})</button></div>`;}
+      c+=`<button class="dho-done" data-dv="${p.don_vi_id}" data-yc="${p.id}" style="width:100%;border:none;border-radius:9px;padding:10px;margin-top:4px;background:var(--blue);color:#fff;font-weight:700;font-size:12.5px">✅ Đã đặt hộ (cộng tồn ${p.don_vi_id})</button></div>`;}
     return c+`</div>`;}).join("");
   el.querySelectorAll('.tog').forEach(b=>b.onclick=async()=>{const ns=b.dataset.st==='moi'?'da_xu_ly':'moi';await sb.from('yeu_cau').update({trang_thai:ns}).eq('id',b.dataset.id);toast(ns==='da_xu_ly'?'✅ Đã đánh dấu xử lý':'↩ Đã mở lại');loadReq();});
+  el.querySelectorAll('.make-xuat').forEach(b=>b.onclick=()=>{const p=data.find(x=>String(x.id)===String(b.dataset.id));if(p)prepareXuatFromYeuCau(p);});
   el.querySelectorAll('.dho-done').forEach(b=>b.onclick=async()=>{const card=b.closest('.hcard');const dv=b.dataset.dv;
     const rows=[...card.querySelectorAll('.ing[data-ctid]')].map(d=>({ctid:d.dataset.ctid,ma:d.dataset.ma,sl:+d.querySelector('.dho-sl').value||0,gia:+d.querySelector('.dho-gia').value||0})).filter(x=>x.sl>0);
     if(!rows.length){toast('Nhập SL trước',true);return;}
-    try{const {data:xh,error}=await sb.from('xuat').insert({ngay:ng,don_vi_id:dv,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true,dat_ho:true}).select().single();if(error)throw error;
+    try{const {data:xh,error}=await sb.from('xuat').insert({ngay:ng,don_vi_id:dv,nguoi:SESSION?.ten_dn,trang_thai:'cho_nhan',tu_mua:true,dat_ho:true,yeu_cau_id:+b.dataset.yc||null}).select().single();if(error)throw error;
       await sb.from('xuat_ct').insert(rows.map(r=>({xuat_id:xh.id,tp_ma:r.ma,sl_xuat:r.sl,gia_mua:r.gia||null,ghi_chu:'đặt hộ'})));
       for(const r of rows)await sb.from('yeu_cau_ct').update({dat_ho_done:true}).eq('id',r.ctid);
       toast('✅ Đã đặt hộ '+dv+' — chờ hàng về, chi nhánh xác nhận nhận');loadReq();
@@ -514,7 +526,7 @@ async function loadBC(){const el=$("#v-bc");el.innerHTML='<div class="loading">�
   sx.forEach(s=>(s.san_xuat_ct||[]).forEach(c=>consumed[c.nvl_ma]=(consumed[c.nvl_ma]||0)+Number(c.sl_tieu_hao)));
   nh.forEach(p=>(p.nhap_ct||[]).forEach(c=>nhapNVL[c.nvl_ma]=(nhapNVL[c.nvl_ma]||0)+Number(c.sl)));
   const days=Object.keys(day).sort().reverse();
-  let html=`<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center"><input type="date" id="bc-from" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px"><span style="color:var(--mut)">→</span><input type="date" id="bc-to" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px"></div><div style="display:flex;gap:6px;margin-bottom:10px"><button id="bc-export" style="flex:1;border:1px solid var(--green);background:#f0fdf4;color:var(--green);border-radius:11px;padding:10px;font-weight:700;font-size:13px">⬇️ Excel tổng</button><button id="bc-detail" style="flex:1;border:1px solid var(--purple);background:#f5f3ff;color:var(--purple);border-radius:11px;padding:10px;font-weight:700;font-size:13px">📄 Excel chi tiết</button><button id="bc-kk" style="flex:1;border:1px solid var(--blue);background:#eff6ff;color:var(--blue);border-radius:11px;padding:10px;font-weight:700;font-size:13px">📋 Kiểm tồn</button></div>${isCN?'':`<div class="stat"><div class="box"><div class="v" style="color:var(--green)">${fmt(totRev)}</div><div class="l">Tiền xuất theo GIÁ BÁN (đ)</div></div><div class="box"><div class="v" style="color:var(--amber)">${fmt(totCost)}</div><div class="l">Theo GIÁ COST (k)</div></div></div>`}`;
+  let html=`<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center"><input type="date" id="bc-from" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px"><span style="color:var(--mut)">→</span><input type="date" id="bc-to" style="flex:1;border:1px solid var(--line);border-radius:9px;padding:8px;font-size:13px"></div><div style="display:flex;gap:6px;margin-bottom:10px"><button id="bc-export" style="flex:1;border:1px solid var(--green);background:#f0fdf4;color:var(--green);border-radius:11px;padding:10px;font-weight:700;font-size:13px">⬇️ Excel tổng</button><button id="bc-detail" style="flex:1;border:1px solid var(--purple);background:#f5f3ff;color:var(--purple);border-radius:11px;padding:10px;font-weight:700;font-size:13px">📄 Excel chi tiết xuất nhập</button><button id="bc-kk" style="flex:1;border:1px solid var(--blue);background:#eff6ff;color:var(--blue);border-radius:11px;padding:10px;font-weight:700;font-size:13px">📋 Kiểm tồn</button></div>${isCN?'':`<div class="stat"><div class="box"><div class="v" style="color:var(--green)">${fmt(totRev)}</div><div class="l">Tiền xuất theo GIÁ BÁN (đ)</div></div><div class="box"><div class="v" style="color:var(--amber)">${fmt(totCost)}</div><div class="l">Theo GIÁ COST (k)</div></div></div>`}`;
   if(!isCN){
     html+=`<div class="sect">📅 Xuất – Nhập theo ngày (Kho)</div><div class="trow" style="background:#f1f5f9;font-weight:700"><span>Ngày</span><span>Nhập NVL</span><span>Xuất TP</span></div>`;
     html+=days.length?days.map(d=>`<div class="trow"><span>${d}</span><span>${fmt(day[d].n)}</span><span class="r">${fmt(day[d].x)}</span></div>`).join(""):'<div class="empty">Chưa có.</div>';
@@ -639,55 +651,59 @@ async function chotSoCN(dv){const d=(window._branchChot||{})[dv];if(!d||!Object.
   const {error}=await sb.from('chot_kho').insert(rows);if(error){toast('Lỗi: '+error.message,true);return;}
   toast('✅ Đã chốt sổ chi nhánh '+dv);loadBC();}
 async function exportDetail(){const from=$("#bc-from").value,to=$("#bc-to").value;const isCN=SESSION.vai_tro==='chi_nhanh',myDV=SESSION.don_vi_id;
-  let xq=sb.from('xuat').select('id,ngay,nhan_luc,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,gia_xuat)').gte('ngay',from).lte('ngay',to).order('ngay');
-  let rq=sb.from('xuat').select('id,ngay,nhan_luc,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_thuc_nhan)').eq('trang_thai','da_nhan').gte('nhan_luc',from+'T00:00:00+07:00').lte('nhan_luc',to+'T23:59:59.999+07:00').order('nhan_luc');
-  let yq=sb.from('yeu_cau').select('ngay,don_vi_id,ghi_chu,yeu_cau_ct(tp_ma,sl_yeu_cau)').gte('ngay',from).lte('ngay',to).order('ngay');
+  const fromTs=from+'T00:00:00+07:00',toTs=to+'T23:59:59.999+07:00';
+  let xq=sb.from('xuat').select('id,ngay,created_at,nhan_luc,don_vi_id,trang_thai,tu_mua,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,gia_xuat)').gte('ngay',from).lte('ngay',to).order('ngay');
+  let dq=sb.from('xuat').select('id,created_at,don_vi_id,tu_mua,xuat_ct(tp_ma,sl_xuat,gia_xuat)').gte('created_at',fromTs).lte('created_at',toTs).order('created_at');
+  let rq=sb.from('xuat').select('id,ngay,nhan_luc,don_vi_id,trang_thai,tu_mua,xuat_ct(tp_ma,sl_thuc_nhan,gia_xuat)').eq('trang_thai','da_nhan').gte('nhan_luc',fromTs).lte('nhan_luc',toTs).order('nhan_luc');
+  let yq=sb.from('yeu_cau').select('id,ma_phieu,ngay,created_at,don_vi_id,trang_thai,ghi_chu,yeu_cau_ct(tp_ma,sl_yeu_cau,nguon)').gte('ngay',from).lte('ngay',to).order('ngay');
   let nq=sb.from('nhap').select('ngay,nhap_ct(nvl_ma,sl,don_gia)').gte('ngay',from).lte('ngay',to).order('ngay');
-  if(isCN){xq=xq.eq('don_vi_id',myDV);rq=rq.eq('don_vi_id',myDV);yq=yq.eq('don_vi_id',myDV);}
-  const [xr,yr,nr,rrr]=await Promise.all([xq,yq,isCN?Promise.resolve({data:[]}):nq,rq]);
-  const xx=xr.data||[],yy=yr.data||[],nn=(nr&&nr.data)||[],received=rrr.data||[];
+  if(isCN){xq=xq.eq('don_vi_id',myDV);dq=dq.eq('don_vi_id',myDV);rq=rq.eq('don_vi_id',myDV);yq=yq.eq('don_vi_id',myDV);}
+  const [xr,dr,yr,nr,rrr]=await Promise.all([xq,dq,yq,isCN?Promise.resolve({data:[]}):nq,rq]);
+  const xx=xr.data||[],dispatched=dr.data||[],yy=yr.data||[],nn=(nr&&nr.data)||[],received=rrr.data||[];
+  let linkedExports=[];const requestIds=yy.map(p=>p.id);
+  if(requestIds.length){let lq=sb.from('xuat').select('id,yeu_cau_id,created_at,don_vi_id,tu_mua,xuat_ct(tp_ma,sl_xuat)').in('yeu_cau_id',requestIds).order('created_at');if(isCN)lq=lq.eq('don_vi_id',myDV);const lr=await lq;linkedExports=lr.data||[];}
   const sheets=[];
   const tenThanhPham=ma=>NAME[ma]?.ten||'Thành phẩm không xác định';
   const tenNguyenLieu=ma=>NAME[ma]?.ten||'Nguyên vật liệu không xác định';
-  // Sheet 1: Chi tiết Xuất/Nhận theo ngày (gom khối theo chi nhánh)
-  {const rows=[];xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const gx=giaTP(l.tp_ma),gt=Math.round(Number(l.sl_thuc_nhan??l.sl_xuat)*gx);rows.push({_dv:p.don_vi_id,ngay:p.ngay,ten:tenThanhPham(l.tp_ma),dvt:NAME[l.tp_ma]?.dvt||'',slx:Number(l.sl_xuat),sln:(l.sl_thuc_nhan??''),gt});}));
-    const baseCols=[{k:'ngay',h:'Ngày'},{k:'ten',h:'Món'},{k:'dvt',h:'ĐVT'},{k:'slx',h:'SL kho xuất'},{k:'sln',h:'SL thực nhận'}];
-    const cols=isCN?baseCols:[...baseCols,{k:'gt',h:'Giá trị theo giá xuất'}];
-    const aoa=groupByBranch(rows,cols,{title:'CHI TIẾT HÀNG XUẤT/NHẬN THEO NGÀY   ('+from+' → '+to+')',sumCols:isCN?null:['gt']});
-    if(!isCN){const grand=rows.reduce((a,r)=>a+(r.gt||0),0);aoa.push([],['','','','','TỔNG GIÁ TRỊ',grand]);}
-    sheets.push({name:'Xuất-Nhận',aoa});}
-  // Sheet: Thành phẩm chi nhánh đã nhận trong kỳ — chỉ hiển thị giá xuất
-  {const agg={};
-    xx.filter(p=>p.trang_thai==='da_nhan').forEach(p=>(p.xuat_ct||[]).forEach(l=>{const ma=l.tp_ma,k=p.don_vi_id+'|'+ma,sl=Number(l.sl_thuc_nhan??0),gia=Number(giaTP(ma)||0);if(!agg[k])agg[k]={_dv:p.don_vi_id,ma,ten:tenThanhPham(ma),dvt:NAME[ma]?.dvt||'',sl:0,gia,tt:0};agg[k].sl+=sl;agg[k].tt+=sl*gia;}));
-    const rows=Object.values(agg).sort((a,b)=>String(a._dv).localeCompare(String(b._dv))||a.ten.localeCompare(b.ten,'vi')).map(r=>({...r,sl:Math.round(r.sl*1000)/1000,tt:Math.round(r.tt)}));
-    const cols=[{k:'ten',h:'Thành phẩm'},{k:'dvt',h:'ĐVT'},{k:'sl',h:'Tổng SL thực nhận'},{k:'gia',h:'Giá xuất'},{k:'tt',h:'Thành tiền theo giá xuất'}];
-    const aoa=groupByBranch(rows,cols,{title:'THÀNH PHẨM NHẬP THEO CHI NHÁNH   ('+from+' → '+to+')',sumCols:['sl','tt']});
-    const grand=rows.reduce((a,r)=>a+(r.tt||0),0);aoa.push([],['','','','TỔNG GIÁ TRỊ XUẤT',grand]);
-    sheets.push({name:'TP nhập chi nhánh',aoa});}
-  // Sheet: Tổng hợp hàng đã xác nhận nhận theo đúng ngày nhân viên bấm nút nhận.
-  {const seen=new Set(received.map(p=>String(p.id))),old=xx.filter(p=>p.trang_thai==='da_nhan'&&!p.nhan_luc&&!seen.has(String(p.id))),src=[...received,...old];
-    const byBranch={},dateVN=v=>new Date(v).toLocaleDateString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});
-    src.forEach(p=>{const dv=p.don_vi_id||'',day=p.nhan_luc?dateVN(p.nhan_luc):'Phiếu cũ — không lưu ngày nhận';const b=(byBranch[dv]=byBranch[dv]||{dates:new Set(),items:{}});b.dates.add(day);
-      (p.xuat_ct||[]).forEach(l=>{const ma=l.tp_ma,sl=Number(l.sl_thuc_nhan??0);if(!sl)return;const it=(b.items[ma]=b.items[ma]||{ten:tenThanhPham(ma),total:0,days:{}});it.total+=sl;it.days[day]=(it.days[day]||0)+sl;});});
-    const aoa=[['TỔNG HỢP HÀNG ĐÃ XÁC NHẬN NHẬN   ('+from+' → '+to+')'],['LƯU Ý: Các cột ngày là ngày nhân viên chi nhánh bấm nút “Xác nhận nhận hàng”, không phải ngày kho xuất hay ngày đặt hàng.'],['Phiếu đã nhận trước khi tính năng này được thêm sẽ nằm ở cột “Phiếu cũ — không lưu ngày nhận”; không thể xác định lại chính xác ngày bấm nút. Với phiếu cũ, bộ lọc kỳ dựa trên ngày phiếu xuất.']];
-    const branchIds=isCN?[myDV]:DV.map(d=>d.id).filter(id=>id!=='XUONG');
-    branchIds.forEach(dv=>{const b=byBranch[dv]||{dates:new Set(),items:{}};const dates=[...b.dates].sort((a,z)=>{if(a.startsWith('Phiếu cũ'))return 1;if(z.startsWith('Phiếu cũ'))return -1;const pa=a.split('/').reverse().join('-'),pz=z.split('/').reverse().join('-');return pa.localeCompare(pz);});const items=Object.values(b.items).sort((a,z)=>a.ten.localeCompare(z.ten,'vi'));
-      aoa.push([],['▶ Chi nhánh '+dv+' — '+dvTen(dv)]);aoa.push(['Tên hàng hóa','Tổng SL nhập',...dates]);
-      if(items.length)items.forEach(it=>aoa.push([it.ten,Math.round(it.total*1000)/1000,...dates.map(d=>Math.round((it.days[d]||0)*1000)/1000)]));
-      else aoa.push(['(Không có hàng đã xác nhận trong kỳ)',0]);});
-    sheets.push({name:'Tổng hợp nhận hàng',aoa});}
-  // Sheet 2: So sánh SL Yêu cầu vs Nhận (gom khối theo chi nhánh)
-  {const req={},rcv={};
-    yy.forEach(p=>(p.yeu_cau_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;req[k]=(req[k]||0)+Number(l.sl_yeu_cau);}));
-    xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;rcv[k]=(rcv[k]||0)+Number(l.sl_thuc_nhan||0);}));
-    const rows=[...new Set([...Object.keys(req),...Object.keys(rcv)])].map(k=>{const[dv,ma]=k.split('|');const q=req[k]||0,r=rcv[k]||0;return {_dv:dv,ten:tenThanhPham(ma),dvt:NAME[ma]?.dvt||'',yc:q,nhan:r,lech:r-q};});
-    const cols=[{k:'ten',h:'Món'},{k:'dvt',h:'ĐVT'},{k:'yc',h:'SL yêu cầu'},{k:'nhan',h:'SL nhận'},{k:'lech',h:'Lệch'}];
-    sheets.push({name:'So sánh YC-Nhận',aoa:groupByBranch(rows,cols,{title:'SO SÁNH SL YÊU CẦU vs SL NHẬN (tổng trong kỳ)'})});}
-  // Sheet 3: Chi tiết Nhập NVL theo ngày (chỉ Kho)
+  const dateVN=v=>new Date(v).toLocaleDateString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});
+  const dateSort=(a,z)=>{if(a.startsWith('Phiếu cũ'))return 1;if(z.startsWith('Phiếu cũ'))return -1;const pa=a.split('/').map(Number),pz=z.split('/').map(Number);return new Date(pa[2],pa[1]-1,pa[0])-new Date(pz[2],pz[1]-1,pz[0]);};
+  const varianceLegend='QUY ƯỚC: 🔴 Thiếu = số thực tế nhỏ hơn số đối chiếu; 🟢 Khớp = hai số bằng nhau; 🔵 Dư = số thực tế lớn hơn số đối chiếu; ⚪ Chưa liên kết/chưa xác nhận.';
+  function productDaySheet(src,opt){const byBranch={};
+    src.forEach(p=>{const dv=p.don_vi_id||'',day=opt.day(p),b=(byBranch[dv]=byBranch[dv]||{dates:new Set(),items:{}});b.dates.add(day);
+      (p.xuat_ct||[]).forEach(l=>{const ma=l.tp_ma,sl=Number(opt.qty(l)||0);if(!sl)return;const gia=Number(giaTP(ma)||0),it=(b.items[ma]=b.items[ma]||{ten:tenThanhPham(ma),dvt:NAME[ma]?.dvt||'',gia,total:0,tt:0,days:{}});it.total+=sl;it.tt+=sl*gia;it.days[day]=(it.days[day]||0)+sl;});});
+    Object.entries(opt.refMap||{}).forEach(([k,ref])=>{const cut=k.indexOf('|'),dv=k.slice(0,cut),ma=k.slice(cut+1),b=(byBranch[dv]=byBranch[dv]||{dates:new Set(),items:{}}),gia=Number(giaTP(ma)||0),it=(b.items[ma]=b.items[ma]||{ten:tenThanhPham(ma),dvt:NAME[ma]?.dvt||'',gia,total:0,tt:0,days:{}});it.ref=Number(ref)||0;});
+    const aoa=[[opt.title],[opt.note],[varianceLegend]];const order=['LTK','THD','AT'];const branchIds=(isCN?[myDV]:Object.keys(byBranch)).sort((a,z)=>(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(z)<0?99:order.indexOf(z))||String(a).localeCompare(String(z)));
+    if(!branchIds.length)aoa.push([],['(Chưa có dữ liệu trong kỳ)']);
+    branchIds.forEach(dv=>{const b=byBranch[dv]||{dates:new Set(),items:{}},dates=[...b.dates].sort(dateSort),items=Object.values(b.items).sort((a,z)=>a.ten.localeCompare(z.ten,'vi'));
+      aoa.push([],['▶ Chi nhánh '+dv+' — '+dvTen(dv)]);aoa.push(['Thành phẩm','ĐVT',opt.refLabel,opt.totalLabel,'Chênh lệch','Trạng thái','Giá xuất','Thành tiền theo giá xuất',...dates]);
+      if(items.length)items.forEach(it=>{const ref=Number(it.ref||0),lech=it.total-ref,st=Math.abs(lech)<0.001?'🟢 Khớp':lech<0?'🔴 Thiếu':'🔵 Dư';aoa.push([it.ten,it.dvt,Math.round(ref*1000)/1000,Math.round(it.total*1000)/1000,Math.round(lech*1000)/1000,st,it.gia,Math.round(it.tt),...dates.map(d=>Math.round((it.days[d]||0)*1000)/1000)]);});
+      else aoa.push(['(Không có dữ liệu trong kỳ)','',0,0,0,'⚪ Chưa có dữ liệu',0,0]);
+      const vals=Object.values(b.items),refTot=vals.reduce((s,it)=>s+Number(it.ref||0),0),actTot=vals.reduce((s,it)=>s+it.total,0),diffTot=actTot-refTot;aoa.push(['Cộng '+dv+'','',Math.round(refTot*1000)/1000,Math.round(actTot*1000)/1000,Math.round(diffTot*1000)/1000,'','',Math.round(vals.reduce((s,it)=>s+it.tt,0)),...dates.map(d=>Math.round(vals.reduce((s,it)=>s+(it.days[d]||0),0)*1000)/1000)]);});
+    return aoa;}
+  // Sheet 1: Hàng kho đã bấm xuất, chia theo đúng ngày quản lý kho lưu phiếu xuất.
+  {const reqMap={};yy.forEach(p=>(p.yeu_cau_ct||[]).filter(l=>l.nguon==='kho').forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;reqMap[k]=(reqMap[k]||0)+Number(l.sl_yeu_cau||0);}));const src=dispatched.filter(p=>!p.tu_mua);const aoa=productDaySheet(src,{title:'THÀNH PHẨM KHO XUẤT THEO CHI NHÁNH   ('+from+' → '+to+')',note:'Các cột ngày là ngày quản lý kho bấm “Lưu phiếu xuất”. Không gồm hàng chi nhánh tự order ngoài hoặc hàng đặt hộ.',refMap:reqMap,refLabel:'Tổng SL yêu cầu',totalLabel:'Tổng SL kho xuất',day:p=>dateVN(p.created_at),qty:l=>l.sl_xuat});
+    sheets.push({name:'TP kho xuất',aoa});}
+  // Sheet 2: Hàng chi nhánh đã xác nhận nhận, gồm giá xuất và các cột ngày bấm nhận.
+  {const seen=new Set(received.map(p=>String(p.id))),old=xx.filter(p=>p.trang_thai==='da_nhan'&&!p.nhan_luc&&!p.tu_mua&&!seen.has(String(p.id))),src=[...received.filter(p=>!p.tu_mua),...old];
+    const sentMap={};dispatched.filter(p=>!p.tu_mua).forEach(p=>(p.xuat_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;sentMap[k]=(sentMap[k]||0)+Number(l.sl_xuat||0);}));
+    const aoa=productDaySheet(src,{title:'THÀNH PHẨM CHI NHÁNH ĐÃ NHẬN   ('+from+' → '+to+')',note:'Các cột ngày là ngày nhân viên chi nhánh bấm “Xác nhận nhận hàng”. Phiếu cũ không có thời điểm bấm nhận được gom vào cột riêng. Không gồm hàng tự order ngoài hoặc hàng đặt hộ.',refMap:sentMap,refLabel:'Tổng SL kho xuất',totalLabel:'Tổng SL thực nhận',day:p=>p.nhan_luc?dateVN(p.nhan_luc):'Phiếu cũ — không lưu ngày nhận',qty:l=>l.sl_thuc_nhan});
+    sheets.push({name:'TP chi nhánh nhận',aoa});}
+  // Sheet 3: Đối chiếu từng mã phiếu yêu cầu với các lần kho xuất đã liên kết.
+  {const aoa=[['ĐỐI CHIẾU ĐƠN YÊU CẦU VÀ XUẤT KHO   ('+from+' → '+to+')'],['Mỗi khối là một mã phiếu. “Chi tiết ngày xuất” cho biết đơn đó được kho xuất ngày nào và số lượng bao nhiêu. Chỉ tính các món có nguồn từ kho.'],[varianceLegend]];
+    const orders=yy.filter(p=>(p.yeu_cau_ct||[]).some(l=>l.nguon==='kho'));
+    if(!orders.length)aoa.push([],['(Không có đơn yêu cầu từ kho trong kỳ)']);
+    orders.forEach(p=>{const exps=linkedExports.filter(x=>String(x.yeu_cau_id)===String(p.id)&&!x.tu_mua),lines=(p.yeu_cau_ct||[]).filter(l=>l.nguon==='kho');
+      aoa.push([],['▶ Mã phiếu '+(p.ma_phieu||('YC-'+p.id))+' — '+p.don_vi_id+' — ngày yêu cầu '+p.ngay+(p.ghi_chu?' — '+p.ghi_chu:'')]);
+      aoa.push(['Thành phẩm','ĐVT','SL yêu cầu','SL kho xuất','Chênh lệch','Trạng thái','Chi tiết ngày xuất']);
+      lines.forEach(l=>{const detail=[];let sx=0;exps.forEach(x=>{const q=(x.xuat_ct||[]).filter(c=>c.tp_ma===l.tp_ma).reduce((s,c)=>s+Number(c.sl_xuat||0),0);if(q){sx+=q;detail.push(dateVN(x.created_at)+': '+fmt(q));}});const yc=Number(l.sl_yeu_cau||0),lech=sx-yc;let st;
+        if(!exps.length)st=p.trang_thai==='moi'?'⚪ Chưa xuất':'⚪ Chưa liên kết phiếu xuất';else if(Math.abs(lech)<0.001)st='🟢 Đã xuất đủ';else if(lech<0)st='🔴 Còn thiếu';else st='🔵 Xuất dư';
+        aoa.push([tenThanhPham(l.tp_ma),NAME[l.tp_ma]?.dvt||'',yc,Math.round(sx*1000)/1000,Math.round(lech*1000)/1000,st,detail.join('; ')||'—']);});});
+    sheets.push({name:'Đối chiếu YC-Xuất',aoa});}
+  // Sheet 4: Chi tiết Nhập NVL theo ngày (chỉ Kho)
   if(!isCN){const aoa=[['CHI TIẾT NHẬP NVL THEO NGÀY   ('+from+' → '+to+')'],[],['Ngày','NVL','ĐVT','SL nhập','Đơn giá','Giá trị']];let tot=0;
     nn.forEach(p=>(p.nhap_ct||[]).forEach(l=>{const gt=Math.round(Number(l.sl)*Number(l.don_gia||0));tot+=gt;aoa.push([p.ngay,tenNguyenLieu(l.nvl_ma),NAME[l.nvl_ma]?.dvt||'',Number(l.sl),Number(l.don_gia||0),gt]);}));
     aoa.push([],['','','','','Tổng',tot]);sheets.push({name:'Nhập NVL',aoa});}
-  xlsxSave('bao-cao-chi-tiet-'+from+'_'+to+'.xlsx',sheets);}
+  xlsxSave('excel-chi-tiet-xuat-nhap-'+from+'_'+to+'.xlsx',sheets);}
 function renderKiemKe(){const el=$("#v-bc");const isCN=SESSION.vai_tro==='chi_nhanh';
   const groups=isCN?[{t:'🍱 Thành phẩm',ids:TP.map(x=>x.ma)}]:[
     {t:'🍱 Thành phẩm',ids:TP.map(x=>x.ma)},
