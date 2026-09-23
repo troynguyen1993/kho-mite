@@ -396,7 +396,7 @@ async function confirmNhan(card,id){
     for(const inp of card.querySelectorAll('.rc')){const upd={sl_thuc_nhan:+inp.value||0};if(tm){const g=card.querySelector('.rcgia[data-ct="'+inp.dataset.ct+'"]');if(g)upd.gia_mua=+g.value||0;}await sb.from('xuat_ct').update(upd).eq('id',inp.dataset.ct);}
     const extra=[...card.querySelectorAll('.extra .ing')].map(d=>({xuat_id:id,tp_ma:d.querySelector('.exma').value,sl_xuat:0,sl_thuc_nhan:+d.querySelector('.exsl').value||0,ghi_chu:'thêm khi nhận'})).filter(x=>x.sl_thuc_nhan>0);
     if(extra.length)await sb.from('xuat_ct').insert(extra);
-    await sb.from('xuat').update({trang_thai:'da_nhan'}).eq('id',id);
+    await sb.from('xuat').update({trang_thai:'da_nhan',nhan_luc:new Date().toISOString()}).eq('id',id);
     toast(dh?'✅ Đã nhận hàng đặt hộ — đã cộng tồn':tm?'✅ Đã xác nhận hàng tự mua (đã cộng tồn + ghi chi phí)':'✅ Đã xác nhận nhận hàng');loadNhan();checkAlerts();
   }catch(e){toast('Lỗi: '+(e.message||e),true);}}
 
@@ -639,12 +639,13 @@ async function chotSoCN(dv){const d=(window._branchChot||{})[dv];if(!d||!Object.
   const {error}=await sb.from('chot_kho').insert(rows);if(error){toast('Lỗi: '+error.message,true);return;}
   toast('✅ Đã chốt sổ chi nhánh '+dv);loadBC();}
 async function exportDetail(){const from=$("#bc-from").value,to=$("#bc-to").value;const isCN=SESSION.vai_tro==='chi_nhanh',myDV=SESSION.don_vi_id;
-  let xq=sb.from('xuat').select('ngay,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,gia_xuat)').gte('ngay',from).lte('ngay',to).order('ngay');
+  let xq=sb.from('xuat').select('id,ngay,nhan_luc,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_xuat,sl_thuc_nhan,gia_xuat)').gte('ngay',from).lte('ngay',to).order('ngay');
+  let rq=sb.from('xuat').select('id,ngay,nhan_luc,don_vi_id,trang_thai,xuat_ct(tp_ma,sl_thuc_nhan)').eq('trang_thai','da_nhan').gte('nhan_luc',from+'T00:00:00+07:00').lte('nhan_luc',to+'T23:59:59.999+07:00').order('nhan_luc');
   let yq=sb.from('yeu_cau').select('ngay,don_vi_id,ghi_chu,yeu_cau_ct(tp_ma,sl_yeu_cau)').gte('ngay',from).lte('ngay',to).order('ngay');
   let nq=sb.from('nhap').select('ngay,nhap_ct(nvl_ma,sl,don_gia)').gte('ngay',from).lte('ngay',to).order('ngay');
-  if(isCN){xq=xq.eq('don_vi_id',myDV);yq=yq.eq('don_vi_id',myDV);}
-  const [xr,yr,nr]=await Promise.all([xq,yq,isCN?Promise.resolve({data:[]}):nq]);
-  const xx=xr.data||[],yy=yr.data||[],nn=(nr&&nr.data)||[];
+  if(isCN){xq=xq.eq('don_vi_id',myDV);rq=rq.eq('don_vi_id',myDV);yq=yq.eq('don_vi_id',myDV);}
+  const [xr,yr,nr,rrr]=await Promise.all([xq,yq,isCN?Promise.resolve({data:[]}):nq,rq]);
+  const xx=xr.data||[],yy=yr.data||[],nn=(nr&&nr.data)||[],received=rrr.data||[];
   const sheets=[];
   // Sheet 1: Chi tiết Xuất/Nhận theo ngày (gom khối theo chi nhánh)
   {const rows=[];xx.forEach(p=>(p.xuat_ct||[]).forEach(l=>{const gx=giaTP(l.tp_ma),gt=Math.round(Number(l.sl_thuc_nhan??l.sl_xuat)*gx);rows.push({_dv:p.don_vi_id,ngay:p.ngay,ten:NAME[l.tp_ma]?.ten||l.tp_ma,dvt:NAME[l.tp_ma]?.dvt||'',slx:Number(l.sl_xuat),sln:(l.sl_thuc_nhan??''),gt});}));
@@ -661,6 +662,18 @@ async function exportDetail(){const from=$("#bc-from").value,to=$("#bc-to").valu
     const aoa=groupByBranch(rows,cols,{title:'THÀNH PHẨM NHẬP THEO CHI NHÁNH   ('+from+' → '+to+')',sumCols:['sl','tt']});
     const grand=rows.reduce((a,r)=>a+(r.tt||0),0);aoa.push([],['','','','','TỔNG GIÁ TRỊ XUẤT',grand]);
     sheets.push({name:'TP nhập chi nhánh',aoa});}
+  // Sheet: Tổng hợp hàng đã xác nhận nhận theo đúng ngày nhân viên bấm nút nhận.
+  {const seen=new Set(received.map(p=>String(p.id))),old=xx.filter(p=>p.trang_thai==='da_nhan'&&!p.nhan_luc&&!seen.has(String(p.id))),src=[...received,...old];
+    const byBranch={},dateVN=v=>new Date(v).toLocaleDateString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});
+    src.forEach(p=>{const dv=p.don_vi_id||'',day=p.nhan_luc?dateVN(p.nhan_luc):'Phiếu cũ — không lưu ngày nhận';const b=(byBranch[dv]=byBranch[dv]||{dates:new Set(),items:{}});b.dates.add(day);
+      (p.xuat_ct||[]).forEach(l=>{const ma=l.tp_ma,sl=Number(l.sl_thuc_nhan??0);if(!sl)return;const it=(b.items[ma]=b.items[ma]||{ten:NAME[ma]?.ten||ma,total:0,days:{}});it.total+=sl;it.days[day]=(it.days[day]||0)+sl;});});
+    const aoa=[['TỔNG HỢP HÀNG ĐÃ XÁC NHẬN NHẬN   ('+from+' → '+to+')'],['LƯU Ý: Các cột ngày là ngày nhân viên chi nhánh bấm nút “Xác nhận nhận hàng”, không phải ngày kho xuất hay ngày đặt hàng.'],['Phiếu đã nhận trước khi tính năng này được thêm sẽ nằm ở cột “Phiếu cũ — không lưu ngày nhận”; không thể xác định lại chính xác ngày bấm nút. Với phiếu cũ, bộ lọc kỳ dựa trên ngày phiếu xuất.']];
+    const branchIds=isCN?[myDV]:DV.map(d=>d.id).filter(id=>id!=='XUONG');
+    branchIds.forEach(dv=>{const b=byBranch[dv]||{dates:new Set(),items:{}};const dates=[...b.dates].sort((a,z)=>{if(a.startsWith('Phiếu cũ'))return 1;if(z.startsWith('Phiếu cũ'))return -1;const pa=a.split('/').reverse().join('-'),pz=z.split('/').reverse().join('-');return pa.localeCompare(pz);});const items=Object.values(b.items).sort((a,z)=>a.ten.localeCompare(z.ten,'vi'));
+      aoa.push([],['▶ Chi nhánh '+dv+' — '+dvTen(dv)]);aoa.push(['Tên hàng hóa','Tổng SL nhập',...dates]);
+      if(items.length)items.forEach(it=>aoa.push([it.ten,Math.round(it.total*1000)/1000,...dates.map(d=>Math.round((it.days[d]||0)*1000)/1000)]));
+      else aoa.push(['(Không có hàng đã xác nhận trong kỳ)',0]);});
+    sheets.push({name:'Tổng hợp nhận hàng',aoa});}
   // Sheet 2: So sánh SL Yêu cầu vs Nhận (gom khối theo chi nhánh)
   {const req={},rcv={};
     yy.forEach(p=>(p.yeu_cau_ct||[]).forEach(l=>{const k=p.don_vi_id+'|'+l.tp_ma;req[k]=(req[k]||0)+Number(l.sl_yeu_cau);}));
